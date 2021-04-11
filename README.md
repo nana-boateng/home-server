@@ -30,4 +30,4 @@ PSU: --
 # 🔐 Security
 # 🔧 Mainenance
 
-# Upgrades
+# 🔮 Future Upgrades

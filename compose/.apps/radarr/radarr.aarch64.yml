@@ -1,0 +1,3 @@
+services:
+  radarr:
+    image: ghcr.io/linuxserver/radarr

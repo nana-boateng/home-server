@@ -1,0 +1,3 @@
+services:
+  muximux:
+    image: ghcr.io/linuxserver/muximux

@@ -1,0 +1,10 @@
+compose/.env
+compose/.apps
+compose/docker-compose.override.yml
+config.json
+config/
+configs/
+dockstarter.log
+share/
+shared/
+site/

@@ -1,0 +1,3 @@
+services:
+  grocy:
+    image: ghcr.io/linuxserver/grocy

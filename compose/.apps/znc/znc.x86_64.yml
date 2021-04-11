@@ -1,0 +1,3 @@
+services:
+  znc:
+    image: ghcr.io/linuxserver/znc

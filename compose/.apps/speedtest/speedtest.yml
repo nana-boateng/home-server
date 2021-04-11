@@ -1,0 +1,19 @@
+services:
+  speedtest:
+    container_name: speedtest
+    environment:
+      - OOKLA_EULA_GDPR=${SPEEDTEST_OOKLA_EULA_GDPR}
+      - PGID=${PGID}
+      - PUID=${PUID}
+      - BASE_PATH=${SPEEDTEST_BASE_PATH}
+      - TZ=${TZ}
+    logging:
+      driver: json-file
+      options:
+        max-file: ${DOCKERLOGGING_MAXFILE}
+        max-size: ${DOCKERLOGGING_MAXSIZE}
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${DOCKERCONFDIR}/speedtest:/config
+      - ${DOCKERSTORAGEDIR}:/storage

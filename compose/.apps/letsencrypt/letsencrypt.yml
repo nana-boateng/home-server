@@ -1,0 +1,27 @@
+services:
+  letsencrypt:
+    cap_add:
+      - NET_ADMIN
+    container_name: letsencrypt
+    environment:
+      - DNSPLUGIN=${LETSENCRYPT_DNSPLUGIN}
+      - DUCKDNSTOKEN=${LETSENCRYPT_DUCKDNSTOKEN}
+      - EMAIL=${LETSENCRYPT_EMAIL}
+      - EXTRA_DOMAINS=${LETSENCRYPT_EXTRA_DOMAINS}
+      - ONLY_SUBDOMAINS=${LETSENCRYPT_ONLY_SUBDOMAINS}
+      - PGID=${PGID}
+      - PUID=${PUID}
+      - SUBDOMAINS=${LETSENCRYPT_SUBDOMAINS}
+      - TZ=${TZ}
+      - URL=${LETSENCRYPT_URL}
+      - VALIDATION=${LETSENCRYPT_VALIDATION}
+    logging:
+      driver: json-file
+      options:
+        max-file: ${DOCKERLOGGING_MAXFILE}
+        max-size: ${DOCKERLOGGING_MAXSIZE}
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${DOCKERCONFDIR}/letsencrypt:/config
+      - ${DOCKERSTORAGEDIR}:/storage

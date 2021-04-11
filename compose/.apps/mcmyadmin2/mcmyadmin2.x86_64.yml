@@ -1,0 +1,3 @@
+services:
+  mcmyadmin2:
+    image: ghcr.io/linuxserver/mcmyadmin2

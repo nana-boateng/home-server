@@ -1,0 +1,3 @@
+services:
+  sickchill:
+    image: ghcr.io/linuxserver/sickchill

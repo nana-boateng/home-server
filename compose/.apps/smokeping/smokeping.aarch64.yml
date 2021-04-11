@@ -1,0 +1,3 @@
+services:
+  smokeping:
+    image: ghcr.io/linuxserver/smokeping

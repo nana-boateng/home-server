@@ -1,0 +1,22 @@
+services:
+  samba:
+    container_name: samba
+    environment:
+      - GROUPID=${PGID}
+      - NMBD=${SAMBA_NMBD}
+      - SHARE=${SAMBA_SHARENAME};/${SAMBA_SHARENAME};yes;no;no;all;${SAMBA_USERNAME}
+      - TZ=${TZ}
+      - USER=${SAMBA_USERNAME};${SAMBA_PASSWORD}
+      - USERID=${PUID}
+      - WORKGROUP=${SAMBA_WORKGROUP}
+    logging:
+      driver: json-file
+      options:
+        max-file: ${DOCKERLOGGING_MAXFILE}
+        max-size: ${DOCKERLOGGING_MAXSIZE}
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${DOCKERCONFDIR}:/${SAMBA_SHARENAME}/config
+      - ${DOCKERSTORAGEDIR}:/${SAMBA_SHARENAME}/storage
+      - ${DOCKERSTORAGEDIR}:/storage

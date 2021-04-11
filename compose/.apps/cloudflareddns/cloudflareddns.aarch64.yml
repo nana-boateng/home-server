@@ -1,0 +1,3 @@
+services:
+  cloudflareddns:
+    image: ghcr.io/hotio/cloudflareddns

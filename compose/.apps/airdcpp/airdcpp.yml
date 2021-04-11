@@ -1,0 +1,23 @@
+services:
+  airdcpp:
+    container_name: airdcpp
+    environment:
+      - GID=${PGID}
+      - HTTP_PORT=${AIRDCPP_PORT_5600}
+      - HTTPS_PORT=${AIRDCPP_PORT_5601}
+      - TCP_PORT=${AIRDCPP_PORT_21248}
+      - TLS_PORT=${AIRDCPP_PORT_21249}
+      - TZ=${TZ}
+      - UDP_PORT=${AIRDCPP_PORT_21248}
+      - UID=${PUID}
+    logging:
+      driver: json-file
+      options:
+        max-file: ${DOCKERLOGGING_MAXFILE}
+        max-size: ${DOCKERLOGGING_MAXSIZE}
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${AIRDCPP_SHAREDIR}:/Share
+      - ${DOCKERCONFDIR}/airdcpp:/.airdcpp
+      - ${DOCKERSTORAGEDIR}:/storage

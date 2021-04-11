@@ -1,0 +1,3 @@
+services:
+  quasselweb:
+    image: ghcr.io/linuxserver/quassel-web

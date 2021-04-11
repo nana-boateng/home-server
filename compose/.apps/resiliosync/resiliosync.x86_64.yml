@@ -1,0 +1,3 @@
+services:
+  resiliosync:
+    image: ghcr.io/linuxserver/resilio-sync

@@ -1,0 +1,3 @@
+services:
+  unifi:
+    image: ghcr.io/linuxserver/unifi-controller

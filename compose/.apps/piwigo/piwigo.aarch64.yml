@@ -1,0 +1,3 @@
+services:
+  piwigo:
+    image: ghcr.io/linuxserver/piwigo

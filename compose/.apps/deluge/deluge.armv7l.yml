@@ -1,0 +1,3 @@
+services:
+  deluge:
+    image: ghcr.io/linuxserver/deluge

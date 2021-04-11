@@ -1,0 +1,3 @@
+services:
+  pyload:
+    image: ghcr.io/linuxserver/pyload

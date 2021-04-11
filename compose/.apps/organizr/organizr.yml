@@ -1,0 +1,19 @@
+services:
+  organizr:
+    container_name: organizr
+    environment:
+      - branch=${ORGANIZR_BRANCH}
+      - fpm=${ORGANIZR_FPM}
+      - PGID=${PGID}
+      - PUID=${PUID}
+      - TZ=${TZ}
+    logging:
+      driver: json-file
+      options:
+        max-file: ${DOCKERLOGGING_MAXFILE}
+        max-size: ${DOCKERLOGGING_MAXSIZE}
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${DOCKERCONFDIR}/organizr:/config
+      - ${DOCKERSTORAGEDIR}:/storage

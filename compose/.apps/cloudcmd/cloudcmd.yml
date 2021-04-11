@@ -1,0 +1,16 @@
+services:
+  cloudcmd:
+    container_name: cloudcmd
+    environment:
+      - TZ=${TZ}
+    logging:
+      driver: json-file
+      options:
+        max-file: ${DOCKERLOGGING_MAXFILE}
+        max-size: ${DOCKERLOGGING_MAXSIZE}
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${DOCKERCONFDIR}/cloudcmd:/root
+      - ${DOCKERSTORAGEDIR}:/storage
+      - ${CLOUDCMD_FSDIR}:/mnt/fs

@@ -1,0 +1,3 @@
+services:
+  jellyfin:
+    image: ghcr.io/linuxserver/jellyfin

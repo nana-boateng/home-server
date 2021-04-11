@@ -1,0 +1,3 @@
+services:
+  quasselcore:
+    image: ghcr.io/linuxserver/quassel-core

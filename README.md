@@ -1,7 +1,7 @@
 # 🏠 home-server
 A repository to detail and document the general plan for my home server. 
 
-# 🖥️ specs
+## 🖥️ specs
 OS: --  
 CPU: --  
 RAM: --  
@@ -11,23 +11,23 @@ Main storage: --
 Seconday storage: --  
 PSU: --  
 
-# 🛠️ planning/staging area  
-## Docker Best Practices   
+## 🛠️ planning/staging area  
+### Docker Best Practices   
 
-## Docker .env Setup  
+### Docker .env Setup  
 
-## Containters & Info
+### Containters & Info
 
-## Reverse Proxy
+### Reverse Proxy
 
-## Port Forwarding
+### Port Forwarding
 
-## Home Assistant
+### Home Assistant
 
-## Other apps
+### Other apps
 
-# 🎬 Setup
-# 🔐 Security
-# 🔧 Mainenance
+## 🎬 Setup
+## 🔐 Security
+## 🔧 Mainenance
 
-# 🔮 Future Upgrades
+## 🔮 Future Upgrades

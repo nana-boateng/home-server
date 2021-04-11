@@ -5,7 +5,7 @@ A repository to detail and document the general plan for my home server.
 OS: Ubuntu Server **(I don't particularly like this choice just because I think Arch has a larger install base for other tools I might need for a server (and Ubuntu has ads, boo), but because the server doesn't have too many demands (yet), this should do just fine)**  
 CPU: Intel i5-3300 (4 cores @ 32.GHz)  
 RAM: 16GB  
-Motherboard: Veriton M6620G P21-A0 **(pre-built)**  
+Motherboard: Veriton M6620G P21-A0    
 GPU: N/A  
 Main storage: 260GB HDD  
 Seconday storage: 10TB HDD  

@@ -1,356 +1,12 @@
+version: '3'
 services:
-    # MEDIA
-    bazarr:
-      image: ghcr.io/linuxserver/bazarr
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${BAZARR_PORT_6767}:6767
-      container_name: bazarr
-      environment:
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${BAZARR_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/bazarr:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    booksonic:
-      image: ghcr.io/linuxserver/booksonic
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${BOOKSONIC_PORT_4040}:4040
-      container_name: booksonic
-      environment:
-        - CONTEXT_PATH=${BOOKSONIC_CONTEXT_PATH}
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${BOOKSONIC_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/booksonic:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    calibreweb:
-      image: ghcr.io/linuxserver/calibre-web
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${CALIBREWEB_PORT_8083}:8083
-      container_name: calibreweb
-      environment:
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${CALIBREWEB_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/calibreweb:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    jackett:
-      image: ghcr.io/linuxserver/jackett
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${JACKETT_PORT_9117}:9117
-      container_name: jackett
-      environment:
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${JACKETT_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/jackett:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    lidarr:
-      image: ghcr.io/linuxserver/lidarr
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${LIDARR_PORT_8686}:8686
-      container_name: lidarr
-      environment:
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${LIDARR_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/lidarr:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    pms-docker:
-      image: plexinc/pms-docker
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${PLEX_PORT_1900}:1900/udp
-        - ${PLEX_PORT_3005}:3005
-        - ${PLEX_PORT_32400}:32400
-        - ${PLEX_PORT_32410}:32410/udp
-        - ${PLEX_PORT_32412}:32412/udp
-        - ${PLEX_PORT_32413}:32413/udp
-        - ${PLEX_PORT_32414}:32414/udp
-        - ${PLEX_PORT_32469}:32469
-        - ${PLEX_PORT_33400}:33400
-        - ${PLEX_PORT_8324}:8324
-      container_name: plex
-      environment:
-        - PGID=${PGID}
-        - PLEX_CLAIM=${PLEX_CLAIM}
-        - PUID=${PUID}
-        - TZ=${TZ}
-        - VERSION=${PLEX_VERSION}
-        - ADVERTISE_IP=${ADVERTISE_IP}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${PLEX_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/plex:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    radarr:
-      image: ghcr.io/linuxserver/radarr
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${RADARR_PORT_7878}:7878
-      container_name: radarr
-      environment:
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${RADARR_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/radarr:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    sonarr:
-      image: ghcr.io/linuxserver/sonarr
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${SONARR_PORT_8989}:8989
-      container_name: sonarr
-      environment:
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${SONARR_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/sonarr:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-  
-  
-    # UTILITY
-    bitwarden:
-      image: vaultwarden/server
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${BITWARDEN_PORT_3012}:3012
-        - ${BITWARDEN_PORT_80}:80
-      container_name: bitwarden
-      environment:
-        - ADMIN_TOKEN=${BITWARDEN_ADMIN_TOKEN}
-        - DATABASE_URL=${BITWARDEN_DATABASE_URL}
-        - DISABLE_ADMIN_TOKEN=${BITWARDEN_DISABLE_ADMIN_TOKEN}
-        - DOMAIN=${BITWARDEN_DOMAIN}
-        - ENABLE_DB_WAL=${BITWARDEN_ENABLE_DB_WAL}
-        - INVITATIONS_ALLOWED=${BITWARDEN_INVITATIONS_ALLOWED}
-        - SHOW_PASSWORD_HINT=${BITWARDEN_SHOW_PASSWORD_HINT}
-        - SIGNUPS_ALLOWED=${BITWARDEN_SIGNUPS_ALLOWED}
-        - SIGNUPS_VERIFY=${BITWARDEN_SIGNUPS_VERIFY}
-        - TZ=${TZ}
-        - WEBSOCKET_ENABLED=${BITWARDEN_WEBSOCKET_ENABLE}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${BITWARDEN_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/bitwarden:/data
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    calibre:
-      image: ghcr.io/linuxserver/calibre
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${CALIBRE_PORT_8080}:8080
-        - ${CALIBRE_PORT_8081}:8081
-      container_name: calibre
-      environment:
-        - CALIBRE_USE_DARK_PALETTE=${CALIBRE_USE_DARK_PALETTE}
-        - CLI_ARGS=${CALIBRE_CLI_ARGS}
-        - GUAC_PASS=${CALIBRE_GUAC_PASS}
-        - GUAC_USER=${CALIBRE_GUAC_USER}
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${CALIBRE_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/calibre:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    codeserver:
-      image: ghcr.io/linuxserver/code-server
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${CODESERVER_PORT_8443}:8443
-      container_name: codeserver
-      environment:
-        - PASSWORD=${CODESERVER_PASSWORD}
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - SUDO_PASSWORD=${CODESERVER_SUDO_PASSWORD}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${CODESERVER_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/codeserver:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    heimdall:
-      image: ghcr.io/linuxserver/heimdall
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${HEIMDALL_PORT_443}:443
-        - ${HEIMDALL_PORT_80}:80
-      container_name: heimdall
-      environment:
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${HEIMDALL_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/heimdall:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    homeassistant:
-      image: homeassistant/home-assistant
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${HOMEASSISTANT_PORT_8123}:8123
-      container_name: homeassistant
-      environment:
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${HOMEASSISTANT_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/homeassistant:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    lazylibrarian:
-      image: ghcr.io/linuxserver/lazylibrarian
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${LAZYLIBRARIAN_PORT_5299}:5299
-      container_name: lazylibrarian
-      environment:
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${LAZYLIBRARIAN_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/lazylibrarian:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    nzbget:
-      image: ghcr.io/linuxserver/nzbget
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${NZBGET_PORT_6789}:6789
-      container_name: nzbget
-      environment:
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${NZBGET_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/nzbget:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    portainer:
+# ---------- Management ----------- #
+  # PORTAINER
+  portainer:
       image: portainer/portainer-ce
-      hostname: ${DOCKERHOSTNAME}
+      # hostname: ${DOCKER_HOSTNAME}
       ports:
-        - ${PORTAINER_PORT_9000}:9000
+        - ${PORTAINER_PORT}:9000
       command: -H unix:///var/run/docker.sock
       container_name: portainer
       environment:
@@ -360,221 +16,317 @@ services:
         options:
           max-file: ${DOCKERLOGGING_MAXFILE}
           max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${PORTAINER_RESTART}
+      restart: always
       volumes:
         - /etc/localtime:/etc/localtime:ro
         - /var/run/docker.sock:/var/run/docker.sock
-        - ${DOCKERCONFDIR}/portainer:/data
-        - ${DOCKERSTORAGEDIR}:/storage
+        - ${DOCKER_CONFIG_DIR}/portainer:/data
+        - ${DOCKER_STORAGE_DIR}:/storage
+
+  # SPEEDTEST    
+  speedtest:
+    # hostname: ${DOCKER_HOSTNAME}
+    container_name: speedtest
+    image: henrywhitaker3/speedtest-tracker
+    ports:
+      - ${SPEEDTEST_PORT}:80
+    volumes:
+      - ${DOCKER_CONFIG_DIR}/speedtest:/config
+    environment:
+      - PGID=${DOCKER_GID}
+      - PUID=${DOCKER_UID}
+      - TZ=${TZ}
+      - OOKLA_EULA_GDPR=true
+    logging:
+      driver: "json-file"
+      options:
+        max-file: ${DOCKERLOGGING_MAXFILE}
+        max-size: ${DOCKERLOGGING_MAXSIZE}
+    restart: unless-stopped
+
+  # GRAFANA 
+  grafana:
+    # hostname: ${DOCKER_HOSTNAME}
+    container_name: grafana
+    image: grafana/grafana-enterprise:8.2.0
+    ports:
+      - ${GRAFANA_PORT}:3000
   
-    qbittorrent:
-      image: ghcr.io/linuxserver/qbittorrent
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${QBITTORRENT_PORT_51413}:51413
-        - ${QBITTORRENT_PORT_51413}:51413/udp
-        - ${QBITTORRENT_PORT_6881}:6881
-        - ${QBITTORRENT_PORT_6881}:6881/udp
-        - ${QBITTORRENT_PORT_8080}:${QBITTORRENT_PORT_8080}
-      container_name: qbittorrent
-      environment:
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-        - WEBUI_PORT=${QBITTORRENT_PORT_8080}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${QBITTORRENT_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/qbittorrent:/config
-        - ${DOCKERSTORAGEDIR}:/storage
+  # NGINX
+  nginx:
+    #hostname: ${DOCKER_HOSTNAME}
+    container_name: nginx
+    image: 'jc21/nginx-proxy-manager:latest'
+    restart: unless-stopped
+    ports:
+      - '80:80' # Public HTTP Port
+      - '443:443' # Public HTTPS Port
+      - '81:81' # Admin Web Port
+    environment:
+      DB_MYSQL_HOST: "db"
+      DB_MYSQL_PORT: 3306
+      DB_MYSQL_USER: "npm"
+      DB_MYSQL_PASSWORD: "npm"
+      DB_MYSQL_NAME: "npm"
+    volumes:
+      - ${DOCKER_CONFIG_DIR}/nginx/data:/data
+      - ${DOCKER_CONFIG_DIR}/nginx/letsencrypt:/etc/letsencrypt
+    depends_on:
+      - db
+
+  # MARIA-DB
+  db:
+    # hostname: ${DOCKER_HOSTNAME}
+    container_name: maria-db
+    image: 'jc21/mariadb-aria:latest'
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: 'npm'
+      MYSQL_DATABASE: 'npm'
+      MYSQL_USER: 'npm'
+      MYSQL_PASSWORD: 'npm'
+    volumes:
+      - ${DOCKER_CONFIG_DIR}/maria-db/data/mysql:/var/lib/mysql
   
-    requestrr:
-      image: ghcr.io/hotio/requestrr
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${REQUESTRR_PORT_4545}:4545
-      container_name: requestrr
-      environment:
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${REQUESTRR_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/requestrr:/config
-        - ${DOCKERSTORAGEDIR}:/storage
+  # DASHY
+  dashy:
+    # hostname: ${DOCKER_HOSTNAME}
+    container_name: dashy
+    image: 'lissy93/dashy:latest'
+    ports:
+      - ${DASHY_PORT}:80
+    environment:
+      - PGID=${DOCKER_GID}
+      - PUID=${DOCKER_UID}
+      - TZ=${TZ}
+      - NODE_ENV=production
+    restart: always 
+
+# ---------- Media ----------- #
+  # JACKETT
+  jackett:
+    # hostname: ${DOCKER_HOSTNAME}
+    image: lscr.io/linuxserver/jackett:latest
+    container_name: jackett
+    environment:
+      - PGID=${DOCKER_GID}
+      - PUID=${DOCKER_UID}
+      - TZ=${TZ}
+    volumes:
+      - ${DOCKER_CONFIG_DIR}/jackett:/config
+      - ${DOCKER_STORAGE_DIR}:/storage
+    ports:
+      - ${JACKETT_PORT}:9117
+    restart: unless-stopped
+
+  # RADARR
+  radarr:
+    # hostname: ${DOCKER_HOSTNAME}
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    environment:
+      - PGID=${DOCKER_GID}
+      - PUID=${DOCKER_UID}
+      - TZ=${TZ}
+    volumes:
+      - ${DOCKER_CONFIG_DIR}/radarr:/config
+      - ${DOCKER_STORAGE_DIR}:/storage
+      # - /path/to/movies:/movies #optional
+      # - /path/to/downloadclient-downloads:/downloads #optional
+    ports:
+      - ${RADARR_PORT}:7878
+    restart: unless-stopped
+
+  #SONARR
+  sonarr:
+    # hostname: ${DOCKER_HOSTNAME}
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    environment:
+      - PGID=${DOCKER_GID}
+      - PUID=${DOCKER_UID}
+      - TZ=${TZ}
+    volumes:
+      - ${DOCKER_CONFIG_DIR}/sonarr:/config
+      - ${DOCKER_STORAGE_DIR}:/storage
+    ports:
+      - ${SONARR_PORT}:8989
+    restart: unless-stopped
+
+  # LIDARR
+  lidarr:
+    # hostname: ${DOCKER_HOSTNAME}
+    image: lscr.io/linuxserver/lidarr:latest
+    container_name: lidarr
+    environment:
+      - PGID=${DOCKER_GID}
+      - PUID=${DOCKER_UID}
+      - TZ=${TZ}
+    volumes:
+      - ${DOCKER_CONFIG_DIR}/lidarr:/config
+      - ${DOCKER_STORAGE_DIR}:/storage #optional
+      # - /path/to/downloads:/downloads #optional
+    ports:
+      - ${LIDARR_PORT}:8686
+    restart: unless-stopped
+
+  # BAZARR
+  bazarr:
+    # hostname: ${DOCKER_HOSTNAME}
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    environment:
+      - PGID=${DOCKER_GID}
+      - PUID=${DOCKER_UID}
+      - TZ=${TZ}
+    volumes:
+      - ${DOCKER_CONFIG_DIR}/bazarr/:/config
+      - ${DOCKER_STORAGE_DIR}:/storage #optional
+      # - /path/to/tv:/tv #optional
+    ports:
+      - ${BAZARR_PORT}:6767
+    restart: unless-stopped
+
+  # PROWLARR
+  prowlarr:
+    # hostname: ${DOCKER_HOSTNAME}
+    image: lscr.io/linuxserver/prowlarr:develop
+    container_name: prowlarr
+    environment:
+      - PGID=${DOCKER_GID}
+      - PUID=${DOCKER_UID}
+      - TZ=${TZ}
+    volumes:
+      - ${DOCKER_CONFIG_DIR}/prowlarr:/config
+      - ${DOCKER_STORAGE_DIR}:/storage
+    ports:
+      - ${PROWLARR_PORT}:9696
+    restart: unless-stopped
+
+  mylar3:
+    image: lscr.io/linuxserver/mylar3:latest
+    container_name: mylar3
+    environment:
+      - PGID=${DOCKER_GID}
+      - PUID=${DOCKER_UID}
+      - TZ=${TZ}
+    volumes:
+      - ${DOCKER_CONFIG_DIR}/mylar3:/config
+      - ${DOCKER_STORAGE_DIR}/media/documents/graphic novels/comics:/comics
+      - ${DOCKER_STORAGE_DIR}/downloads:/downloads
+    ports:
+      - ${MYLAR_PORT}:8090
+    restart: unless-stopped
+
+# ---------- Document ----------- #
+  # LAZY LIBRARIAN
+  lazylibrarian:
+    # hostname: ${DOCKER_HOSTNAME}
+    image: lscr.io/linuxserver/lazylibrarian:latest
+    container_name: lazylibrarian
+    environment:
+      - PGID=${DOCKER_GID}
+      - PUID=${DOCKER_UID}
+      - TZ=${TZ}
+    volumes:
+      - ${DOCKER_CONFIG_DIR}/lazylibrarian:/config
+      - ${DOCKER_STORAGE_DIR}:/storage
+      # - /path/to/data/:/books #optional
+    ports:
+      - ${LAZYLIBRARIAN_PORT}:5299
+    restart: unless-stopped
+
+  # AUDIOBOOKSHELF
+  audiobookshelf:
+    # hostname: ${DOCKER_HOSTNAME}
+    image: ghcr.io/advplyr/audiobookshelf:latest
+    container_name: audiobookshelf
+    environment:
+      - PGID=${DOCKER_GID}
+      - PUID=${DOCKER_UID}
+      - TZ=${TZ}
+    ports:
+      - ${AUDIOBOOKSHELF_PORT}:80
+    volumes:
+      # - </path/to/your/audiobooks>:/audiobooks
+      # - </path/to/your/podcasts>:/podcasts
+      - ${DOCKER_STORAGE_DIR}:/storage
+      - ${DOCKER_CONFIG_DIR}/audiobookshelf:/config
+      - ${DOCKER_CONFIG_DIR}/audiobookshelf/meta:/metadata
   
-    sabnzbd:
-      image: ghcr.io/linuxserver/sabnzbd
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${SABNZBD_PORT_8080}:8080
-      container_name: sabnzbd
-      environment:
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${SABNZBD_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/sabnzbd:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    speedtest:
-      image: henrywhitaker3/speedtest-tracker
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${SPEEDTEST_PORT_80}:80
-      container_name: speedtest
-      environment:
-        - OOKLA_EULA_GDPR=${SPEEDTEST_OOKLA_EULA_GDPR}
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - BASE_PATH=${SPEEDTEST_BASE_PATH}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${SPEEDTEST_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/speedtest:/config
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    tautulli:
-      image: ghcr.io/linuxserver/tautulli
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${TAUTULLI_PORT_8181}:8181
-      container_name: tautulli
-      environment:
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${TAUTULLI_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/tautulli:/config
-        - ${DOCKERCONFDIR}/plex/Library/Application Support/Plex Media Server/Logs:/logs:ro
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    watchtower:
-      image: containrrr/watchtower
-      hostname: ${DOCKERHOSTNAME}
-      container_name: watchtower
-      environment:
-        - REPO_PASS=${WATCHTOWER_REPO_PASS}
-        - REPO_USER=${WATCHTOWER_REPO_USER}
-        - TZ=${TZ}
-        - WATCHTOWER_CLEANUP=${WATCHTOWER_CLEANUP}
-        - WATCHTOWER_INCLUDE_STOPPED=${WATCHTOWER_INCLUDE_STOPPED}
-        - WATCHTOWER_MONITOR_ONLY=${WATCHTOWER_MONITOR_ONLY}
-        - WATCHTOWER_NOTIFICATION_TEMPLATE=${WATCHTOWER_NOTIFICATION_TEMPLATE}
-        - WATCHTOWER_NOTIFICATION_URL=${WATCHTOWER_NOTIFICATION_URL}
-        - WATCHTOWER_NOTIFICATIONS_LEVEL=${WATCHTOWER_NOTIFICATIONS_LEVEL}
-        - WATCHTOWER_NOTIFICATIONS=${WATCHTOWER_NOTIFICATIONS}
-        - WATCHTOWER_SCHEDULE=${WATCHTOWER_SCHEDULE}
-        - WATCHTOWER_TIMEOUT=${WATCHTOWER_TIMEOUT}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${WATCHTOWER_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - /var/run/docker.sock:/var/run/docker.sock
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    youtubedl:
-      image: nbr23/youtube-dl-server
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${YOUTUBEDL_PORT_8080}:8080
-      container_name: youtubedl
-      environment:
-        - PGID=${PGID}
-        - PUID=${PUID}
-        - TZ=${TZ}
-        - YDL_DEBUG=${YOUTUBEDL_DEBUG}
-        - YDL_CONFIG_PATH=${YOUTUBEDL_CONFIG_PATH}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: ${YOUTUBEDL_RESTART}
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/youtubedl:/youtube-dl
-        - ${DOCKERSTORAGEDIR}:/storage
-  
-    nginx:
-      image: 'jc21/nginx-proxy-manager:latest'
-      restart: unless-stopped
-      ports:
-        - '80:80'
-        - '81:81'
-        - '443:443'
-      environment:
-        DB_MYSQL_HOST: ${MYSQL_HOST}
-        DB_MYSQL_PORT: 3306
-        DB_MYSQL_USER: ${MYSQL_USER}
-        DB_MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-        DB_MYSQL_NAME: ${MYSQL_NAME}
-      volumes:
-        - ${DOCKERSTORAGEDIR}:/data
-        - ${DOCKERSTORAGEDIR}/letsencrypt:/etc/letsencrypt
-  
-    db:
-      image: 'jc21/mariadb-aria:latest'
-      restart: unless-stopped
-      environment:
-        MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-        MYSQL_DATABASE: ${MYSQL_DATABASE}
-        MYSQL_USER: ${MYSQL_USER}
-        MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-      volumes:
-        - ${DOCKERSTORAGEDIR}/mysql:/var/lib/mysql
-  
-    cloudcmd:
-      image: coderaiser/cloudcmd
-      hostname: ${DOCKERHOSTNAME}
-      ports:
-        - ${CLOUDCMD_PORT_8000}:8000
-      container_name: cloudcmd
-      environment:
-        - TZ=${TZ}
-      logging:
-        driver: json-file
-        options:
-          max-file: ${DOCKERLOGGING_MAXFILE}
-          max-size: ${DOCKERLOGGING_MAXSIZE}
-      restart: unless-stopped
-      volumes:
-        - /etc/localtime:/etc/localtime:ro
-        - ${DOCKERCONFDIR}/cloudcmd:/root
-        - ${DOCKERSTORAGEDIR}:/storage
-        - ${CLOUDCMD_FSDIR}:/mnt/fs
+  calibre:
+    image: lscr.io/linuxserver/calibre:latest
+    container_name: calibre
+    environment:
+      - PGID=${DOCKER_GID}
+      - PUID=${DOCKER_UID}
+      - TZ=${TZ}
+    volumes:
+      - ${DOCKER_STORAGE_DIR}/media/documents:/config
+    ports:
+      - ${CALIBRE_PORT}:8080
+      - ${CALIBRE_PORT_8081}:8081
+    restart: unless-stopped
+
+  # KAVITA
+  kavita:
+    image: kizaing/kavita:latest
+    container_name: kavita
+    environment:
+      - PGID=${DOCKER_GID}
+      - PUID=${DOCKER_UID}
+      - TZ=${TZ}
+    volumes:
+      - ${DOCKER_STORAGE_DIR}/media/documents/graphic novels/:/manga
+      - ${DOCKER_STORAGE_DIR}/media/documents/books/:/books
+      - ${DOCKER_CONFIG_DIR}/kavita:/kavita/config
+    ports:
+      - ${KAVITA_PORT}:5000
+    restart: unless-stopped
+
+  # PLEX
+  pms-docker:
+    image: plexinc/pms-docker
+    # hostname: ${DOCKER_HOSTNAME}
+    ports:
+      - 1900:1900/udp
+      - 3005:3005
+      - 32400:32400
+      - 32410:32410/udp
+      - 32412:32412/udp
+      - 32413:32413/udp
+      - 32414:32414/udp
+      - 32469:32469
+      - 33400:33400
+      - 8324:8324
+    container_name: plex
+    # network_mode: host
+    environment:
+      - PGID=${DOCKER_GID}
+      - PUID=${DOCKER_UID}
+      - TZ=${TZ}
+      - PLEX_CLAIM=${PLEX_CLAIM}
+    logging:
+      driver: json-file
+      options:
+        max-file: ${DOCKERLOGGING_MAXFILE}
+        max-size: ${DOCKERLOGGING_MAXSIZE}
+    restart: always
+    # ADVERTISE_IP: 192.168.9.115
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${DOCKER_CONFIG_DIR}/plex:/config
+      - ${DOCKER_STORAGE_DIR}:/storage
+
+# ---------- Utility ----------- #
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    ports:
+      - ${VAULTWARDEN_PORT}:80
+    restart: always
+    environment:
+      WEBSOCKET_ENABLED: "true"  # Enable WebSocket notifications.
+    volumes:
+      - ${DOCKER_CONFIG_DIR}/vaultwarden/vw-data:/data
+

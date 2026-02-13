@@ -1,0 +1,13 @@
+services:
+  tracktor:
+    image: ${TRACKTOR_IMAGE}
+    container_name: tracktor
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '9006:8080'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/tracktor:/config
+    restart: unless-stopped

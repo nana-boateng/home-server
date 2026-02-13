@@ -1,0 +1,10 @@
+include:
+  - path: logseq.yml
+  - path: trilium.yml
+  - path: stirling-pdf.yml
+  - path: mealie.yml
+  - path: grocy.yml
+  - path: tracktor.yml
+  - path: shipshipship.yml
+  - path: opengist.yml
+  - path: listinglab.yml

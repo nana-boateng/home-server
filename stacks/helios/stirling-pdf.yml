@@ -1,0 +1,14 @@
+services:
+  stirling-pdf:
+    image: stirlingtools/stirling-pdf:latest
+    container_name: stirling-pdf
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '9003:8080'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/stirling-pdf:/config
+      - ${PROXMOX_DIR}/appdata/stirling-pdf/data:/data
+    restart: unless-stopped

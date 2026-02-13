@@ -1,3 +1,0 @@
-services:
-  photoshow:
-    image: ghcr.io/linuxserver/photoshow

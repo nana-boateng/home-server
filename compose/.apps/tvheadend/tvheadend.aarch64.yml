@@ -1,3 +1,0 @@
-services:
-  tvheadend:
-    image: ghcr.io/linuxserver/tvheadend

@@ -1,0 +1,13 @@
+services:
+  maintainerr:
+    image: lscr.io/linuxserver/maintainerr:latest
+    container_name: maintainerr
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '8002:6246'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/maintainerr:/config
+    restart: unless-stopped

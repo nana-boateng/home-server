@@ -1,0 +1,7 @@
+include:
+  - path: homepage.yml
+  - path: jellyseerr.yml
+  - path: wizarr.yml
+  - path: speedtest.yml
+  - path: changedetection.yml
+  - path: filebrowser.yml

@@ -1,0 +1,13 @@
+services:
+  aggregarr:
+    image: dAnim元宵/aggregarr:latest
+    container_name: aggregarr
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '7011:7171'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/aggregarr:/config
+    restart: unless-stopped

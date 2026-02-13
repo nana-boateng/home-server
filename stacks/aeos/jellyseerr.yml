@@ -1,0 +1,13 @@
+services:
+  jellyseerr:
+    image: lscr.io/linuxserver/jellyseerr:latest
+    container_name: jellyseerr
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '6002:5055'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/jellyseerr:/config
+    restart: unless-stopped

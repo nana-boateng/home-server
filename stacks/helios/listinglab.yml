@@ -1,0 +1,13 @@
+services:
+  listinglab:
+    image: ${LISTINGLAB_IMAGE}
+    container_name: listinglab
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '9009:8080'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/listinglab:/config
+    restart: unless-stopped

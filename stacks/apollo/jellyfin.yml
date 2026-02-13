@@ -1,0 +1,16 @@
+services:
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    container_name: jellyfin
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '8096:8096'
+      - '8920:8920'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/jellyfin:/config
+      - ${STORAGE_DIR}:/data
+      - ${STORAGE_DIR}/transcode:/transcode
+    restart: unless-stopped

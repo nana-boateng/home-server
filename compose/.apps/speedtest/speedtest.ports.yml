@@ -1,4 +1,0 @@
-services:
-  speedtest:
-    ports:
-      - ${SPEEDTEST_PORT_80}:80

@@ -1,4 +1,0 @@
-services:
-  huginn:
-    ports:
-      - ${HUGINN_PORT_3000}:3000

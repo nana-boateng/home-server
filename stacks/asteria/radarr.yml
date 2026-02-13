@@ -1,0 +1,14 @@
+services:
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '7002:7878'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/radarr:/config
+      - ${STORAGE_DIR}:/storage
+    restart: unless-stopped

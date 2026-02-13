@@ -1,0 +1,11 @@
+services:
+  trilium:
+    image: zadam/trilium:latest
+    container_name: trilium
+    environment:
+      - TZ=${TZ}
+    ports:
+      - '9002:8080'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/trilium:/home/node/trilium-data
+    restart: unless-stopped

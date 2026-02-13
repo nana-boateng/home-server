@@ -1,0 +1,3 @@
+include:
+  - path: ntfy.yml
+  - path: pairdrop.yml

@@ -1,3 +1,0 @@
-services:
-  xbackbone:
-    hostname: ${DOCKERHOSTNAME}

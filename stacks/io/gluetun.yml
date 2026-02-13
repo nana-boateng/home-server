@@ -1,0 +1,21 @@
+services:
+  gluetun:
+    image: qmcgaw/gluetun
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - TZ=${TZ}
+      - VPN_SERVICE_PROVIDER=private_internet_access
+      - OPENVPN_USER=${PIA_USER}
+      - OPENVPN_PASSWORD=${PIA_PASSWORD}
+      - SERVER_REGIONS=${PIA_REGION}
+      - PORT_FORWARDING=on
+      - PORT_FORWARDING_PROVIDER=private_internet_access
+    ports:
+      - '5001:8000'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/gluetun:/gluetun
+    restart: unless-stopped

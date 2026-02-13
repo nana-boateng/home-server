@@ -1,3 +1,0 @@
-services:
-  synclounge:
-    image: ghcr.io/linuxserver/synclounge

@@ -1,3 +1,0 @@
-services:
-  syncthing:
-    image: ghcr.io/linuxserver/syncthing

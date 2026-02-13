@@ -1,0 +1,11 @@
+services:
+  ntfy:
+    image: binwhier/ntfy:latest
+    container_name: ntfy
+    environment:
+      - TZ=${TZ}
+    ports:
+      - '10001:80'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/ntfy:/config
+    restart: unless-stopped

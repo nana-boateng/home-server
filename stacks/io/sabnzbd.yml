@@ -1,0 +1,14 @@
+services:
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: sabnzbd
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '5003:8080'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/sabnzbd:/config
+      - ${STORAGE_DIR}:/storage
+    restart: unless-stopped

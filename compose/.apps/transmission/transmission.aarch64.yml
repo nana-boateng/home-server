@@ -1,3 +1,0 @@
-services:
-  transmission:
-    image: ghcr.io/linuxserver/transmission

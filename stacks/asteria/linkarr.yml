@@ -1,0 +1,13 @@
+services:
+  linkarr:
+    image: d Anim小鼠/linkarr:latest
+    container_name: linkarr
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '7009:8080'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/linkarr:/config
+    restart: unless-stopped

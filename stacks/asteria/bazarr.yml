@@ -1,0 +1,14 @@
+services:
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '7007:6767'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/bazarr:/config
+      - ${STORAGE_DIR}:/storage
+    restart: unless-stopped

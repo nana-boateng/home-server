@@ -1,0 +1,13 @@
+services:
+  mealie:
+    image: lscr.io/linuxserver/mealie:latest
+    container_name: mealie
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '9004:9000'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/mealie:/config
+    restart: unless-stopped

@@ -1,0 +1,13 @@
+services:
+  pairdrop:
+    image: lscr.io/linuxserver/pairdrop:latest
+    container_name: pairdrop
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '10002:3000'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/pairdrop:/config
+    restart: unless-stopped

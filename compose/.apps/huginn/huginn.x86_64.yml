@@ -1,3 +1,0 @@
-services:
-  huginn:
-    image: huginn/huginn

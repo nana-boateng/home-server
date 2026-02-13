@@ -1,3 +1,0 @@
-services:
-  codeserver:
-    hostname: ${DOCKERHOSTNAME}

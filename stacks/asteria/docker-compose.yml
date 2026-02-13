@@ -1,0 +1,12 @@
+include:
+  - path: prowlarr.yml
+  - path: radarr.yml
+  - path: sonarr.yml
+  - path: lidarr.yml
+  - path: whisparr.yml
+  - path: kapowarr.yml
+  - path: bazarr.yml
+  - path: flaresolverr.yml
+  - path: linkarr.yml
+  - path: boxarr.yml
+  - path: aggregarr.yml

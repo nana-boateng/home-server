@@ -1,0 +1,13 @@
+services:
+  changedetection:
+    image: dani-garcia/changedetection.io:latest
+    container_name: changedetection
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '6005:5000'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/changedetection:/config
+    restart: unless-stopped

@@ -1,3 +1,0 @@
-services:
-  portainer:
-    hostname: ${DOCKERHOSTNAME}

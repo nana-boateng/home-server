@@ -1,0 +1,7 @@
+include:
+  - path: gluetun.yml
+  - path: qbittorrent.yml
+  - path: sabnzbd.yml
+  - path: jdownloader.yml
+  - path: metube.yml
+  - path: immich-drop.yml

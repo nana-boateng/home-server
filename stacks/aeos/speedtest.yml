@@ -1,0 +1,13 @@
+services:
+  speedtest:
+    image: lscr.io/linuxserver/speedtest-tracker:latest
+    container_name: speedtest
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '6004:80'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/speedtest:/config
+    restart: unless-stopped

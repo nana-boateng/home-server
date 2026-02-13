@@ -1,4 +1,0 @@
-services:
-  duplicacy:
-    ports:
-      - ${DUPLICACY_PORT_3875}:3875

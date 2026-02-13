@@ -1,3 +1,0 @@
-services:
-  requestrr:
-    image: ghcr.io/hotio/requestrr

@@ -1,0 +1,12 @@
+services:
+  homepage:
+    image: gethomepage/homepage:latest
+    container_name: homepage
+    environment:
+      - TZ=${TZ}
+    ports:
+      - '6001:3000'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/homepage:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped

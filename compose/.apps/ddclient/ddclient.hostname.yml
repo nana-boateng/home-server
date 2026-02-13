@@ -1,3 +1,0 @@
-services:
-  ddclient:
-    hostname: ${DOCKERHOSTNAME}

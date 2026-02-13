@@ -1,0 +1,13 @@
+services:
+  grocy:
+    image: lscr.io/linuxserver/grocy:latest
+    container_name: grocy
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '9005:80'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/grocy:/config
+    restart: unless-stopped

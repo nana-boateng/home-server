@@ -1,3 +1,0 @@
-services:
-  filebot:
-    image: jlesage/filebot

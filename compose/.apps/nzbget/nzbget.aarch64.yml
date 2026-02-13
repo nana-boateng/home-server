@@ -1,3 +1,0 @@
-services:
-  nzbget:
-    image: ghcr.io/linuxserver/nzbget

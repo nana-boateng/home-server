@@ -1,0 +1,14 @@
+services:
+  jdownloader:
+    image: jlesage/jdownloader-2
+    container_name: jdownloader
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '5004:5800'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/jdownloader:/config
+      - ${STORAGE_DIR}/downloads/jdownloader:/output
+    restart: unless-stopped

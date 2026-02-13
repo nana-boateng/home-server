@@ -1,0 +1,13 @@
+services:
+  logseq:
+    image: tccr.io/truechart/logseq:latest
+    container_name: logseq
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '9001:80'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/logseq:/config
+    restart: unless-stopped

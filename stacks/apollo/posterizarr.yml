@@ -1,0 +1,13 @@
+services:
+  posterizarr:
+    image: lscr.io/linuxserver/posterizarr:latest
+    container_name: posterizarr
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '8003:8000'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/posterizarr:/config
+    restart: unless-stopped

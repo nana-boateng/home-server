@@ -1,3 +1,0 @@
-services:
-  rsnapshot:
-    image: ghcr.io/linuxserver/rsnapshot

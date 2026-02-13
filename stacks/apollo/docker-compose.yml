@@ -1,0 +1,6 @@
+include:
+  - path: plex.yml
+  - path: jellyfin.yml
+  - path: tautulli.yml
+  - path: maintainerr.yml
+  - path: posterizarr.yml

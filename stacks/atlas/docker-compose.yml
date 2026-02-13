@@ -1,0 +1,4 @@
+include:
+  - path: uptime-kuma.yml
+  - path: dozzle.yml
+  - path: watchtower.yml

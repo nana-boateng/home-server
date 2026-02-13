@@ -1,4 +1,0 @@
-services:
-  prometheus:
-    ports:
-      - ${PROMETHEUS_PORT_9090}:9090

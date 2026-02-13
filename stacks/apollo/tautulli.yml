@@ -1,0 +1,13 @@
+services:
+  tautulli:
+    image: lscr.io/linuxserver/tautulli:latest
+    container_name: tautulli
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '8001:8181'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/tautulli:/config
+    restart: unless-stopped

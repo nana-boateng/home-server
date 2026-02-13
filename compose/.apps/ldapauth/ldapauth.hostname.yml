@@ -1,3 +1,0 @@
-services:
-  ldapauth:
-    hostname: ${DOCKERHOSTNAME}

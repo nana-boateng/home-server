@@ -1,0 +1,18 @@
+services:
+  plex:
+    image: plexinc/pms-docker:latest
+    container_name: plex
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+      - PLEX_CLAIM=${PLEX_CLAIM}
+    ports:
+      - '32400:32400'
+      - '32400:32400/udp'
+      - '3005:3000'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/plex:/config
+      - ${STORAGE_DIR}:/data
+      - ${STORAGE_DIR}/transcode:/transcode
+    restart: unless-stopped

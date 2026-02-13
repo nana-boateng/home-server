@@ -1,3 +1,0 @@
-services:
-  filebot:
-    network_mode: ${FILEBOT_NETWORK_MODE}

@@ -1,0 +1,13 @@
+services:
+  wizarr:
+    image: wizarr/wizarr:latest
+    container_name: wizarr
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '6003:5690'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/wizarr:/config
+    restart: unless-stopped

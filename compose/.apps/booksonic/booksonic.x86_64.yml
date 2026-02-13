@@ -1,3 +1,0 @@
-services:
-  booksonic:
-    image: ghcr.io/linuxserver/booksonic

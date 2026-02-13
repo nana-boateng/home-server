@@ -1,3 +1,0 @@
-services:
-  rutorrent:
-    image: ghcr.io/linuxserver/rutorrent

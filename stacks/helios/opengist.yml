@@ -1,0 +1,13 @@
+services:
+  opengist:
+    image: thomasonette/opengist:latest
+    container_name: opengist
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '9008:6157'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/opengist:/data
+    restart: unless-stopped

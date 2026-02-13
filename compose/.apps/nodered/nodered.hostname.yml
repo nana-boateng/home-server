@@ -1,3 +1,0 @@
-services:
-  nodered:
-    hostname: ${DOCKERHOSTNAME}

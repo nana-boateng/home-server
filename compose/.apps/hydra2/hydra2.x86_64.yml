@@ -1,3 +1,0 @@
-services:
-  hydra2:
-    image: ghcr.io/linuxserver/hydra2

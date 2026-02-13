@@ -1,3 +1,0 @@
-services:
-  goaccess:
-    hostname: ${DOCKERHOSTNAME}

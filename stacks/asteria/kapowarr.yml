@@ -1,0 +1,14 @@
+services:
+  kapowarr:
+    image: lscr.io/linuxserver/kapowarr:latest
+    container_name: kapowarr
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '7006:5656'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/kapowarr:/config
+      - ${STORAGE_DIR}:/storage
+    restart: unless-stopped

@@ -1,3 +1,0 @@
-services:
-  nextcloud:
-    image: ghcr.io/linuxserver/nextcloud

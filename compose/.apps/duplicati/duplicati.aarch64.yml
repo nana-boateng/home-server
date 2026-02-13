@@ -1,3 +1,0 @@
-services:
-  duplicati:
-    image: ghcr.io/linuxserver/duplicati

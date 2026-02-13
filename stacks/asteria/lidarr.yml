@@ -1,0 +1,14 @@
+services:
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    container_name: lidarr
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '7004:8686'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/lidarr:/config
+      - ${STORAGE_DIR}:/storage
+    restart: unless-stopped

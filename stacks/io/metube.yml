@@ -1,0 +1,14 @@
+services:
+  metube:
+    image: alexta69/metube:latest
+    container_name: metube
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '5005:8081'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/metube:/config
+      - ${STORAGE_DIR}/downloads/metube:/downloads
+    restart: unless-stopped

@@ -1,4 +1,0 @@
-services:
-  dozzle:
-    ports:
-      - ${DOZZLE_PORT_8080}:8080

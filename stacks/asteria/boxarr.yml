@@ -1,0 +1,13 @@
+services:
+  boxarr:
+    image: dAnim元宵/boxarr:latest
+    container_name: boxarr
+    environment:
+      - TZ=${TZ}
+      - PUID=${UID}
+      - PGID=${GID}
+    ports:
+      - '7010:8888'
+    volumes:
+      - ${PROXMOX_DIR}/appdata/boxarr:/config
+    restart: unless-stopped

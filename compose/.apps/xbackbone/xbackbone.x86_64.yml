@@ -1,3 +1,0 @@
-services:
-  xbackbone:
-    image: pe46dro/xbackbone-docker

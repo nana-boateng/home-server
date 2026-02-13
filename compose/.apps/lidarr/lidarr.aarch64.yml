@@ -1,3 +1,0 @@
-services:
-  lidarr:
-    image: ghcr.io/linuxserver/lidarr

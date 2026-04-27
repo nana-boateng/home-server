@@ -9,5 +9,5 @@ services:
     ports:
       - "${PROWLARR_PORT}:9696"
     volumes:
-      - "./config/prowlarr:/config"
+      - "./config:/config"
     restart: unless-stopped

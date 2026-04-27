@@ -9,6 +9,6 @@ services:
     ports:
       - "${SONARR_PORT}:8989"
     volumes:
-      - "./config/sonarr:/config"
+      - "./config:/config"
       - "${STORAGE_DIR}:/storage"
     restart: unless-stopped

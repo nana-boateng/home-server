@@ -1,14 +1,14 @@
 services:
-  bazarr:
-    image: lscr.io/linuxserver/bazarr:latest
-    container_name: bazarr
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
     environment:
       - TZ=${TZ}
       - PUID=${PUID}
       - PGID=${PGID}
     ports:
-      - "${BAZARR_PORT}:6767"
+      - "${RADARR_PORT}:7878"
     volumes:
-      - "./config/bazarr:/config"
+      - "./config:/config"
       - "${STORAGE_DIR}:/storage"
     restart: unless-stopped

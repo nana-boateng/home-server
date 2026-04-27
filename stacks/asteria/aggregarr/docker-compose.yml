@@ -7,5 +7,5 @@ services:
     ports:
       - "${AGGREGARR_PORT}:7171"
     volumes:
-      - "./config/aggregarr:/app/config"
+      - "./config:/app/config"
     restart: unless-stopped

@@ -9,7 +9,7 @@ services:
     ports:
       - "${LINKARR_PORT}:8080"
     volumes:
-      - "./config/linkarr/config.json:/config/config.json"
+      - "./config:/config"
       - "${LINKARR_SOURCE_DIR}:${LINKARR_SOURCE_DIR}"
       - "${LINKARR_ORGANIZED_DIR}:${LINKARR_ORGANIZED_DIR}"
     restart: unless-stopped

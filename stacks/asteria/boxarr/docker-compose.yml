@@ -7,5 +7,5 @@ services:
     ports:
       - "${BOXARR_PORT}:8888"
     volumes:
-      - "./config/boxarr:/config"
+      - "./config:/config"
     restart: unless-stopped

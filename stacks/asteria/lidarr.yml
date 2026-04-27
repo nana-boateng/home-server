@@ -4,11 +4,11 @@ services:
     container_name: lidarr
     environment:
       - TZ=${TZ}
-      - PUID=${UID}
-      - PGID=${GID}
+      - PUID=${PUID}
+      - PGID=${PGID}
     ports:
-      - '7004:8686'
+      - "${LIDARR_PORT}:8686"
     volumes:
-      - ${PROXMOX_DIR}/appdata/lidarr:/config
-      - ${STORAGE_DIR}:/storage
+      - "./config/lidarr:/config"
+      - "${STORAGE_DIR}:/storage"
     restart: unless-stopped

@@ -4,10 +4,10 @@ services:
     container_name: flaresolverr
     environment:
       - TZ=${TZ}
-      - PUID=${UID}
-      - PGID=${GID}
+      - PUID=${PUID}
+      - PGID=${PGID}
     ports:
-      - '7008:8191'
+      - "${FLARESOLVERR_PORT}:8191"
     volumes:
-      - ${PROXMOX_DIR}/appdata/flaresolverr:/config
+      - "./config/flaresolverr:/config"
     restart: unless-stopped

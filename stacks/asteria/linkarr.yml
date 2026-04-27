@@ -1,13 +1,15 @@
 services:
   linkarr:
-    image: d Anim小鼠/linkarr:latest
+    image: itsmejoeeey/linkarr:latest
     container_name: linkarr
     environment:
       - TZ=${TZ}
-      - PUID=${UID}
-      - PGID=${GID}
+      - PUID=${PUID}
+      - PGID=${PGID}
     ports:
-      - '7009:8080'
+      - "${LINKARR_PORT}:8080"
     volumes:
-      - ${PROXMOX_DIR}/appdata/linkarr:/config
+      - "./config/linkarr/config.json:/config/config.json"
+      - "${LINKARR_SOURCE_DIR}:${LINKARR_SOURCE_DIR}"
+      - "${LINKARR_ORGANIZED_DIR}:${LINKARR_ORGANIZED_DIR}"
     restart: unless-stopped

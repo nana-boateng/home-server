@@ -1,14 +1,15 @@
 services:
   kapowarr:
-    image: lscr.io/linuxserver/kapowarr:latest
+    image: mrcas/kapowarr:latest
     container_name: kapowarr
     environment:
       - TZ=${TZ}
-      - PUID=${UID}
-      - PGID=${GID}
+      - PUID=${PUID}
+      - PGID=${PGID}
     ports:
-      - '7006:5656'
+      - "${KAPOWARR_PORT}:5656"
     volumes:
-      - ${PROXMOX_DIR}/appdata/kapowarr:/config
-      - ${STORAGE_DIR}:/storage
+      - "./config/kapowarr/db:/app/db"
+      - "${KAPOWARR_TEMP_DOWNLOADS_DIR}:/app/temp_downloads"
+      - "${KAPOWARR_COMICS_DIR}:/comics"
     restart: unless-stopped

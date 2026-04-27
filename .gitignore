@@ -1,4 +1,7 @@
 compose/.env
+**/.env
+!.env.example
+!.env.template
 compose/.apps/
 compose/docker-compose.override.yml
 config.json

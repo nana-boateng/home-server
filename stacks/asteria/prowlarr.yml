@@ -4,10 +4,10 @@ services:
     container_name: prowlarr
     environment:
       - TZ=${TZ}
-      - PUID=${UID}
-      - PGID=${GID}
+      - PUID=${PUID}
+      - PGID=${PGID}
     ports:
-      - '7001:9696'
+      - "${PROWLARR_PORT}:9696"
     volumes:
-      - ${PROXMOX_DIR}/appdata/prowlarr:/config
+      - "./config/prowlarr:/config"
     restart: unless-stopped

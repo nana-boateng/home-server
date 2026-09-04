@@ -1,7 +1,7 @@
 include:
-  - path: homepage.yml
-  - path: jellyseerr.yml
-  - path: wizarr.yml
-  - path: speedtest.yml
-  - path: changedetection.yml
-  - path: filebrowser.yml
+  - path: homepage/docker-compose.yml
+  - path: jellyseerr/docker-compose.yml
+  - path: wizarr/docker-compose.yml
+  - path: speedtest/docker-compose.yml
+  - path: changedetection/docker-compose.yml
+  - path: filebrowser/docker-compose.yml

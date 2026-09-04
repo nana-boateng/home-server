@@ -1,0 +1,39 @@
+services:
+  sisyphus-migrator:
+    image: alpine:3.22
+    container_name: sisyphus-migrator
+    profiles:
+      - migration
+    environment:
+      - TZ=${TZ}
+      - RSYNC_DELETE=${MIGRATION_DELETE:-false}
+      - RSYNC_EXTRA_OPTS=${MIGRATION_EXTRA_OPTS:-}
+    volumes:
+      - ${MIGRATION_SOURCE_DIR}:/source:ro
+      - ${MIGRATION_TARGET_DIR}:/target
+      - ${PROXMOX_DIR}/appdata/sisyphus-migrator:/logs
+    command:
+      - /bin/sh
+      - -euxc
+      - |
+        apk add --no-cache rsync coreutils
+        mkdir -p /logs
+        ts="$(date +%Y%m%d-%H%M%S)"
+        log="/logs/${ts}.log"
+        delete_flag=""
+        if [ "${RSYNC_DELETE}" = "true" ]; then
+          delete_flag="--delete-delay"
+        fi
+        echo "[$(date -Iseconds)] syncing /source/ -> /target/" | tee -a "$log"
+        rsync \
+          -aH \
+          --numeric-ids \
+          --partial \
+          --append-verify \
+          --human-readable \
+          --info=progress2,stats2 \
+          ${delete_flag} \
+          ${RSYNC_EXTRA_OPTS} \
+          /source/ /target/ | tee -a "$log"
+        echo "[$(date -Iseconds)] sync completed" | tee -a "$log"
+    restart: "no"

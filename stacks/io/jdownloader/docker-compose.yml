@@ -4,11 +4,11 @@ services:
     container_name: jdownloader
     environment:
       - TZ=${TZ}
-      - PUID=${UID}
-      - PGID=${GID}
+      - USER_ID=${PUID}
+      - GROUP_ID=${PGID}
     ports:
-      - '5004:5800'
+      - "${JDOWNLOADER_PORT}:5800"
     volumes:
-      - ${PROXMOX_DIR}/appdata/jdownloader:/config
-      - ${STORAGE_DIR}/downloads/jdownloader:/output
+      - "./config:/config"
+      - "${STORAGE_DIR}/downloads/jdownloader:/output"
     restart: unless-stopped

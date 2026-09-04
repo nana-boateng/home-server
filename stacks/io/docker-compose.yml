@@ -1,7 +1,7 @@
 include:
-  - path: gluetun.yml
-  - path: qbittorrent.yml
-  - path: sabnzbd.yml
-  - path: jdownloader.yml
-  - path: metube.yml
-  - path: immich-drop.yml
+  - path: gluetun/docker-compose.yml
+  - path: qbittorrent/docker-compose.yml
+  - path: sabnzbd/docker-compose.yml
+  - path: jdownloader/docker-compose.yml
+  - path: metube/docker-compose.yml
+  - path: immich-drop/docker-compose.yml

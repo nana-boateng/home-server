@@ -1,6 +1,6 @@
 include:
-  - path: plex.yml
-  - path: jellyfin.yml
-  - path: tautulli.yml
-  - path: maintainerr.yml
-  - path: posterizarr.yml
+  - path: plex/docker-compose.yml
+  - path: jellyfin/docker-compose.yml
+  - path: tautulli/docker-compose.yml
+  - path: maintainerr/docker-compose.yml
+  - path: posterizarr/docker-compose.yml

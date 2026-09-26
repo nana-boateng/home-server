@@ -7,5 +7,5 @@ services:
     ports:
       - "${AGGREGARR_PORT}:7171"
     volumes:
-      - "./config:/app/config"
+      - "${APPDATA_DIR}/asteria/aggregarr:/app/config"
     restart: unless-stopped

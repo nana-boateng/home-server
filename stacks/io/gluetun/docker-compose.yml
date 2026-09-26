@@ -14,7 +14,7 @@ services:
       - WIREGUARD_ADDRESSES=${MULLVAD_WIREGUARD_ADDRESSES}
       - SERVER_CITIES=${MULLVAD_SERVER_CITIES}
     volumes:
-      - "./config:/gluetun"
+      - "${APPDATA_DIR}/io/gluetun:/gluetun"
     healthcheck:
       test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
       interval: 10s

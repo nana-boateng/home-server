@@ -9,6 +9,6 @@ services:
     ports:
       - "${METUBE_PORT}:8081"
     volumes:
-      - "./config:/config"
+      - "${APPDATA_DIR}/io/metube:/config"
       - "${STORAGE_DIR}/downloads/metube:/downloads"
     restart: unless-stopped

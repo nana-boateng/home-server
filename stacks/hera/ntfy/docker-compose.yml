@@ -7,5 +7,5 @@ services:
     ports:
       - '10001:80'
     volumes:
-      - ${PROXMOX_DIR}/appdata/ntfy:/config
+      - ${APPDATA_DIR}/hera/ntfy:/config
     restart: unless-stopped

@@ -9,5 +9,5 @@ services:
     ports:
       - '8002:6246'
     volumes:
-      - ${PROXMOX_DIR}/appdata/maintainerr:/config
+      - ${APPDATA_DIR}/apollo/maintainerr:/config
     restart: unless-stopped

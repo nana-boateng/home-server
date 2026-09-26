@@ -9,5 +9,5 @@ services:
     ports:
       - '8003:8000'
     volumes:
-      - ${PROXMOX_DIR}/appdata/posterizarr:/config
+      - ${APPDATA_DIR}/apollo/posterizarr:/config
     restart: unless-stopped

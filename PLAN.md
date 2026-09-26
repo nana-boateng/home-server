@@ -42,10 +42,14 @@ A single NFS export containing both `downloads/` and `library/` under one mount 
 
 *\* Docker images to be provided by user before implementation*
 
-**Not stacks.** Pi-hole + Unbound and Caddy are infrastructure, not applications.
-They run as **Proxmox LXCs** on a quiet node (Themis or Hestia), outside Docker
-Compose, so that restarting a stack can never take down DNS or ingress. See
-[docs/DECISIONS.md](./docs/DECISIONS.md) D3, D4, D6.
+**Not stacks.** Pi-hole + Unbound, Caddy, and the Tailscale subnet router are
+infrastructure, not applications. They run as **Proxmox LXCs on Rhea**, outside
+Docker Compose, so that restarting a stack can never take down DNS or ingress.
+See [docs/DECISIONS.md](./docs/DECISIONS.md) D3, D4, D13.
+
+**Stack placement** (D13): `apollo` on Hestia; `io`, `asteria`, and `helios` on
+Themis; Uptime Kuma and ntfy on Rhea with the infrastructure. `aeos` and the
+`atlas` remainder are **not yet assigned**.
 
 ---
 
@@ -186,9 +190,9 @@ home-server/
 
 ### On each VM/LXC host:
 ```
-/opt/stacks/home-server/          # Git repo clone
-/opt/appdata/<service-name>/      # Persistent config (Docker volumes)
-/mnt/storage/                     # NFS mount from TrueNAS (where needed)
+/opt/stacks/home-server/            # Git repo clone — declarative only, no state
+/opt/appdata/<stack>/<service>/     # Persistent config on node-local ZFS
+/mnt/storage/                       # NFS mount from TrueNAS — bulk data only
 ```
 
 ### TrueNAS media directory (single NFS export for hardlinks):
@@ -217,21 +221,23 @@ home-server/
 ```yaml
 # ALL media-accessing services use the same mount:
 volumes:
-  - /opt/appdata/<service>:/config
-  - /mnt/storage:/storage              # Consistent path = hardlinks work
+  - ${APPDATA_DIR}/<stack>/<service>:/config   # node-local ZFS — never NFS
+  - ${STORAGE_DIR}:/storage                    # Consistent path = hardlinks work
 ```
 
-> **Open question — SQLite on NFS.** The `/config` half of this rule matters more
-> than it looks. Radarr, Sonarr, Prowlarr, Bazarr, Immich, and Paperless all keep
-> SQLite/Postgres databases, and SQLite over NFS has unreliable locking and a
-> well-known corruption mode. Keeping `/config` on node-local storage (as written
-> above) while media and downloads stay on the shared NFS export is the proposed
-> rule, but it is **not yet ratified** — it depends on whether each node actually
-> has local SSD available. Note that
-> [docs/homelab-architecture-notes.md](./docs/homelab-architecture-notes.md)
-> still shows appdata under `/mnt/storage/appdata/...`, which contradicts this.
-> Tracked at
-> [SQLite on NFS](./docs/homelab-network-plan.md#sqlite-on-nfs-highest-risk-open-item).
+**Two tiers, and the split is load-bearing.** `/config` and databases go on
+node-local ZFS; only `downloads/`, `media/`, and `shared/` go on NFS. SQLite over
+NFS has unreliable locking and a well-known corruption mode, and Radarr, Sonarr,
+Prowlarr, Bazarr, Immich, and Paperless all keep SQLite or Postgres databases.
+See [docs/DECISIONS.md](./docs/DECISIONS.md) D11.
+
+`APPDATA_DIR` defaults to `/opt/appdata`. The `${STORAGE_DIR}` mount must be
+identical across `io` and `asteria` or hardlinking breaks and imports silently
+double disk usage.
+
+State on node-local disk is backed up by **Restic** — per-node agents, ZFS
+snapshot quiesce, shared deduplicated repo on Tartarus. See D12. The git clone
+holds declarative configuration only; it is never the state backup.
 
 ---
 
@@ -287,7 +293,7 @@ has to terminate at the proxy, before the request reaches Jellyfin.
 Several services (File Browser, Dozzle, Homepage) currently have **no auth layer
 at all**. That is fine while they are Tailscale-only, and a problem the moment
 anything makes them LAN- or internet-reachable — tracked as an
-[open question](./docs/homelab-network-plan.md#other-flagged-items).
+[open question](./docs/OPEN-QUESTIONS.md#no-auth-layer-on-internal-tools).
 
 ---
 
@@ -344,11 +350,20 @@ After implementation, verify by:
 
 ## Open Questions
 
-Design questions raised but **not ratified** — including SQLite on NFS, the
-backup story, Watchtower and Docker socket exposure, monitoring sharing a failure
-domain with Rhea, and the qBittorrent host-lockup sizing — are collected in
-[docs/homelab-network-plan.md](./docs/homelab-network-plan.md#open-questions--known-risks).
+Design questions raised but **not ratified** live in
+[docs/OPEN-QUESTIONS.md](./docs/OPEN-QUESTIONS.md) — second-tier storage as a
+purchase, transcode placement, off-box backup, Docker socket exposure, and the
+unassigned `aeos`/`atlas` placement among them.
 
-Nothing there is implemented. No service moves are approved; the current Compose
-placement stands until a decision lands in
-[docs/DECISIONS.md](./docs/DECISIONS.md).
+Nothing there is implemented.
+
+## Build State
+
+The infrastructure layer is **built, not planned**: three nodes clean-installed
+on PVE 9.2.2 with ZFS-on-root, joined into cluster **`gaia`**, behind a MikroTik
+CRS310 core switch. See [docs/rebuild-runbook.md](./docs/rebuild-runbook.md) for
+the completed sequence and its gotchas, and
+[docs/hardware-inventory.md](./docs/hardware-inventory.md) for measured specs.
+
+Remaining: NFS mounts to Tartarus, stack rebuild per the placement rule, the
+infrastructure LXCs on Rhea, and Restic.

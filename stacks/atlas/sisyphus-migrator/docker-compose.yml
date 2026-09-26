@@ -11,7 +11,7 @@ services:
     volumes:
       - ${MIGRATION_SOURCE_DIR}:/source:ro
       - ${MIGRATION_TARGET_DIR}:/target
-      - ${PROXMOX_DIR}/appdata/sisyphus-migrator:/logs
+      - ${APPDATA_DIR}/atlas/sisyphus-migrator:/logs
     command:
       - /bin/sh
       - -euxc

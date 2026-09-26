@@ -9,5 +9,5 @@ services:
     ports:
       - '9005:80'
     volumes:
-      - ${PROXMOX_DIR}/appdata/grocy:/config
+      - ${APPDATA_DIR}/helios/grocy:/config
     restart: unless-stopped

@@ -9,5 +9,5 @@ services:
     ports:
       - '9004:9000'
     volumes:
-      - ${PROXMOX_DIR}/appdata/mealie:/config
+      - ${APPDATA_DIR}/helios/mealie:/config
     restart: unless-stopped

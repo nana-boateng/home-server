@@ -9,5 +9,5 @@ services:
     ports:
       - '9007:8080'
     volumes:
-      - ${PROXMOX_DIR}/appdata/shipshipship:/config
+      - ${APPDATA_DIR}/helios/shipshipship:/config
     restart: unless-stopped

@@ -7,5 +7,5 @@ services:
     ports:
       - '9002:8080'
     volumes:
-      - ${PROXMOX_DIR}/appdata/trilium:/home/node/trilium-data
+      - ${APPDATA_DIR}/helios/trilium:/home/node/trilium-data
     restart: unless-stopped

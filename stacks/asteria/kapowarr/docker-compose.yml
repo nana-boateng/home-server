@@ -9,7 +9,7 @@ services:
     ports:
       - "${KAPOWARR_PORT}:5656"
     volumes:
-      - "./config/db:/app/db"
+      - "${APPDATA_DIR}/asteria/kapowarr/db:/app/db"
       - "${KAPOWARR_TEMP_DOWNLOADS_DIR}:/app/temp_downloads"
       - "${KAPOWARR_COMICS_DIR}:/comics"
     restart: unless-stopped

@@ -9,6 +9,6 @@ services:
     ports:
       - '9003:8080'
     volumes:
-      - ${PROXMOX_DIR}/appdata/stirling-pdf:/config
-      - ${PROXMOX_DIR}/appdata/stirling-pdf/data:/data
+      - ${APPDATA_DIR}/helios/stirling-pdf:/config
+      - ${APPDATA_DIR}/helios/stirling-pdf/data:/data
     restart: unless-stopped

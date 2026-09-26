@@ -1,14 +1,17 @@
 # Homelab Network Plan (Omada + Proxmox + TrueNAS)
 
-This document captures the **general gist** of the homelab rebuild: replicate the
-reference pfSense/VLAN/Synology layout using **TP-Link Omada** (ER605 gateway,
-smart switch, OC200 controller), the existing **3-node Proxmox** cluster, and
-**TrueNAS tartarus** — with portability (move homes, change ISP) as a
-first-class goal.
+This document captures the **general gist** of the homelab network: a **TP-Link
+ER605** gateway for routing and firewalling, a **MikroTik CRS310** core switch
+doing all VLAN work, the **3-node Proxmox cluster `gaia`**, and **TrueNAS
+tartarus** — with portability (move homes, change ISP) as a first-class goal.
 
 Related docs:
 
 - [Decision Log](./DECISIONS.md) — locked decisions and their rationale
+- [Open Questions](./OPEN-QUESTIONS.md) — unratified items and known risks
+- [Network Core — CRS310](./network-core-crs310.md) — switch, port map, VLAN rollout
+- [Hardware Inventory](./hardware-inventory.md) — measured node specs
+- [Rebuild Runbook](./rebuild-runbook.md) — the PVE 9 + cluster build
 - [Homelab Architecture Notes](./homelab-architecture-notes.md) — node roles, stacks
 - [TrueNAS to Proxmox Storage](./truenas-proxmox-storage.md) — NFS identity model
 - [Network Implementation Phases](./network-implementation-phases.md) — step-by-step build
@@ -31,8 +34,8 @@ Related docs:
 | Reference | Ours |
 |-----------|------|
 | pfSense firewall | TP-Link Omada ER605 gateway |
-| Netgear switches | Omada smart switch(es) |
-| Meraki AP | Omada EAP |
+| Netgear switches | **MikroTik CRS310-8G+2S+IN** core switch |
+| Meraki AP | Omada EAP650 |
 | Synology + Docker | TrueNAS tartarus + Proxmox LXCs + Compose stacks |
 | WireGuard on firewall | Tailscale mesh (+ optional Omada WireGuard) |
 | pfSense Pi-hole | Pi-hole + Unbound in a **Proxmox LXC** (see [DECISIONS.md](./DECISIONS.md)) |
@@ -65,11 +68,13 @@ pool `.100–.254` is configured and live on the router. Statics live in `.1–.
 
 | Host | IP | Notes |
 |------|-----|-------|
-| ER605 router | `10.0.0.1` | |
-| OC200 | `10.0.0.2` | Reserved — hardware currently faulty |
-| Rhea | `10.0.0.10` | Proxmox, `vmbr0` |
-| Themis | `10.0.0.11` | Proxmox, `vmbr0` |
-| Hestia | `10.0.0.12` | Proxmox, `vmbr0` |
+| ER605 router | `10.0.0.1` | Gateway; keeps inter-VLAN routing and firewalling |
+| OC200 | `10.0.0.2` | Reserved — faulty, RMA outstanding |
+| CRS310 switch | `10.0.0.3` | Management on the **bridge** interface |
+| EAP650 | `10.0.0.4` | Access point |
+| Rhea | `10.0.0.10` | Proxmox 9.2.2, ZFS-on-root |
+| Themis | `10.0.0.11` | Proxmox 9.2.2, ZFS-on-root |
+| Hestia | `10.0.0.12` | Proxmox 9.2.2, ZFS-on-root |
 | Tartarus (TrueNAS) | `10.0.0.20` | static alias on `enp2s0` |
 
 **Rule: service IPs are not node-encoded.** An IP must never imply which node a
@@ -94,21 +99,34 @@ The search domain is **`.lan`**. All host and service names are `*.lan`.
 **`.local` must not be used anywhere.** It is reserved for mDNS (RFC 6762) and
 causes intermittent, hard-to-debug resolution failures on macOS and Linux.
 
-> **Action item:** the TrueNAS box is currently configured with domain `local`
-> and needs to be moved to `lan`.
+> **Action item (not a repo change).** The only live `.local` in the homelab is
+> the TrueNAS box's domain setting. Fix it on the TrueNAS console — the repo
+> itself has zero `.local` occurrences.
 
-### VLANs
+### VLANs — third octet under a `10.0.0.0/16` supernet
 
-The Main VLAN is the live `10.0.0.0/24` above. The remaining VLANs are still
-**planned, not built** — they depend on the Omada controller, and the OC200 is
-currently faulty.
+**Main stays `10.0.0.0/24`.** Future VLANs use the **third octet** under one
+`10.0.0.0/16` supernet.
 
-| VLAN | Name | Subnet | Gateway | Status |
-|------|------|--------|---------|--------|
-| 1 | Main | `10.0.0.0/24` | `10.0.0.1` | **Live** |
-| 2 | IoT | `10.2.0.0/24` | `10.2.0.1` | Planned |
-| 3 | Guest | `10.3.0.0/24` | `10.3.0.1` | Planned |
-| 4 | VPN | `10.4.0.0/24` | `10.4.0.1` | Planned |
+| VLAN ID | Name | Subnet | Gateway | Status |
+|---------|------|--------|---------|--------|
+| 10 | Main | `10.0.0.0/24` | `10.0.0.1` | **Live** |
+| 20 | IoT | `10.0.20.0/24` | `10.0.20.1` | Planned |
+| 30 | Guest | `10.0.30.0/24` | `10.0.30.1` | Planned |
+
+VLAN IDs mirror the third octet. **Main is the exception — VLAN 10**, because
+VLAN 0 is reserved. **Avoid VLAN 1 entirely.**
+
+Why the third octet and not the second: the old scheme (`10.1`–`10.4`) encoded
+VLANs in the second octet, which would have forced **every live machine to
+re-IP** the moment VLANs arrived. Under one supernet, Main never re-IPs, a
+single Tailscale route covers every VLAN, and firewall rules stay simple.
+
+**Running flat today.** One bridge, `vlan-filtering` off. VLANs are **not**
+blocked on the faulty OC200 — the MikroTik does VLAN tagging itself. They are
+deferred by the deliberate choice to prove the flat 2.5G network first. Rollout
+ordering and its two traps:
+[network-core-crs310.md](./network-core-crs310.md#vlan-rollout--procedure).
 
 All VLANs use Pi-hole (`10.0.0.50`) as DNS via DHCP — not ISP DNS.
 
@@ -117,15 +135,24 @@ All VLANs use Pi-hole (`10.0.0.50`) as DNS via DHCP — not ISP DNS.
 ## Physical Topology
 
 ```text
-[ISP Modem] → [ER605 Gateway] → [Core Switch] ─┬─ tartarus (10G if available)
-                                                  ├─ rhea / hestia / themis
-                                                  ├─ [Theater Switch] (trunk)
-                                                  └─ [Omada AP] (trunk, multi-SSID)
+[ISP Modem] → [ER605 Gateway] → [CRS310 Core Switch] ─┬─ tartarus  (ether5)
+                                                       ├─ rhea     (ether2)
+                                                       ├─ themis   (ether3)
+                                                       ├─ hestia   (ether4)
+                                                       ├─ seedbox  (ether7)
+                                                       └─ [EAP650] (ether6, trunk)
 ```
 
-- **Trunk ports**: gateway ↔ core, core ↔ AP, core ↔ theater switch
-- **Access ports**: end devices on single VLAN
-- **Gaming/consoles** → Main (VLAN 1); **TVs/speakers/bridges** → IoT (VLAN 2)
+- **Trunk ports**: ether1 (ER605) and ether6 (EAP650) — tagged 20, 30; untagged PVID 10
+- **Access ports**: ether2–5, 7–8 — PVID 10
+- **SFP+ 1–2**: free, reserved for a future 10G link to Tartarus
+- **Gaming/consoles** → Main (VLAN 10); **TVs/speakers/bridges** → IoT (VLAN 20)
+
+Full port map and the router-on-a-stick rationale:
+[network-core-crs310.md](./network-core-crs310.md).
+
+**2.5G only materialises where both ends support it.** Tartarus does; the M720q
+is gigabit; the N5095 boxes vary. Check negotiated rates rather than assuming.
 
 ---
 
@@ -147,7 +174,11 @@ Rules:
   never take down DNS.
 - Pi-hole serves **split-horizon DNS**: internal hostnames resolve to LAN IPs.
 
-Placement: see [Infrastructure Placement](#infrastructure-placement) below.
+Placement: **Rhea** — see [Infrastructure Placement](#infrastructure-placement)
+below.
+
+The Proxmox hosts themselves deliberately resolve via the router (`10.0.0.1`),
+**not** Pi-hole, so DNS recovery is not circular when the Pi-hole LXC is down.
 
 ---
 
@@ -176,20 +207,33 @@ the static, version-controllable Caddyfile.
 Caddy and Pi-hole are **infrastructure, not applications**. Both:
 
 - run as **LXCs on the Proxmox cluster**, outside Docker Compose
-- go on a **quieter node (Themis or Hestia)** — **not** Rhea
+- go **on Rhea**, the light always-on infrastructure node
 - must **not** go on the fourth non-clustered machine
 
 The reverse proxy and DNS are the two components whose failure takes down access
-to everything else. They belong on managed, snapshotted, always-on hardware with
-`vzdump` coverage. The fourth machine sits outside the cluster, gets no snapshots
-or backups, and is expected to be repurposed and rebooted freely — the wrong home
-for a front door.
+to everything else. They belong on managed, snapshotted, always-on hardware. The
+fourth machine sits outside the cluster, gets no snapshots or backups, and is
+expected to be repurposed and rebooted freely — the wrong home for a front door.
 
-### The fourth machine
+**Rhea's full infrastructure load:** Pi-hole + Unbound, Caddy, Uptime Kuma, ntfy,
+the Omada software controller, and the Tailscale subnet router. Small LXCs with
+tiny configs.
 
-Same specs as the weakest node. Stays **outside** the Proxmox cluster. Reserved
+> **Do NOT put the heavy ~29-service control plane on Rhea.** Those stacks go to
+> Themis.
+
+> Earlier revisions of this plan routed infrastructure *away* from Rhea. Both
+> premises for that have expired — Rhea is no longer the busiest node, and its
+> 54 GiB pool constraint is gone. See [DECISIONS.md](./DECISIONS.md) D13.
+
+### The fourth machine (seedbox)
+
+Same specs as the weakest node. Stays **outside** the `gaia` cluster. Reserved
 for experiments, tinkering, and disposable workloads. **Explicitly
 non-production** — nothing critical goes here, and work should not drift onto it.
+
+qBittorrent currently runs here as a workaround and stays until the 2.5" SATA
+SSDs are purchased.
 
 ---
 
@@ -197,26 +241,33 @@ non-production** — nothing critical goes here, and work should not drift onto 
 
 | Node | Role | Stacks / services |
 |------|------|-------------------|
-| **tartarus** | Storage | NFS `sisyphus`, SMB `ixion`, Proxmox backups |
-| **rhea** | Control plane | `io`, `asteria`, `aeos`, `atlas`, `hera` |
-| **hestia** | Media hub | `apollo`, Channels-DVR, Audiobookshelf, … |
-| **themis** | Compute / appliances | HA OS VM, Immich, Paperless, `helios` |
-| **(themis or hestia)** | Infrastructure LXCs | Caddy, Pi-hole + Unbound, Tailscale subnet router |
-| **fourth machine** | Non-production | Experiments only — see above |
+| **tartarus** | Storage | NFS `sisyphus`, SMB `ixion`, Proxmox backups, Restic repo |
+| **rhea** | Light infrastructure (weakest CPU) | Pi-hole + Unbound, Caddy, Uptime Kuma, ntfy, Omada controller, Tailscale subnet router |
+| **hestia** | Media / storage hub (1 TB) | `apollo`, Channels-DVR, Audiobookshelf, … |
+| **themis** | Compute / appliances + heavy stacks (6c/12t) | `io`, `asteria`, HA OS VM, Immich, Paperless, `helios` |
+| *unassigned* | — | `aeos`, and the `atlas` remainder (Dozzle, Watchtower) |
+| **seedbox** | Non-production | Experiments, plus qBittorrent until the SSDs land |
 
 Storage identity: **`sisyphus` UID/GID 3004** on NFS; see
 [truenas-proxmox-storage.md](./truenas-proxmox-storage.md).
 
+**Runtime config does not live on NFS.** Configs sit on node-local ZFS at
+`/opt/appdata/<stack>/<service>`; NFS carries `downloads/`, `media/`, and
+`shared/` only. See [DECISIONS.md](./DECISIONS.md) D11.
+
 ---
 
-## Firewall Intent (Omada)
+## Firewall Intent (ER605)
 
 Keep rules simple — pfSense-level micro-rules not required.
 
-1. **Guest** → RFC1918: deny; → WAN: allow
-2. **IoT** → Main: deny (default); allow DNS to `10.0.0.50`; allow WAN
-3. **Main** → IoT: allow (admin); → anywhere: allow
-4. **VPN** → Main (+ optional IoT): allow
+Rules live on the **ER605**, not the switch — the CRS310 tags and forwards, the
+router filters. See [DECISIONS.md](./DECISIONS.md) D15 for why routing is
+deliberately *not* offloaded to the switch.
+
+1. **Guest** (`10.0.30.0/24`) → RFC1918: deny; → WAN: allow
+2. **IoT** (`10.0.20.0/24`) → Main: deny (default); allow DNS to `10.0.0.50`; allow WAN
+3. **Main** (`10.0.0.0/24`) → IoT: allow (admin); → anywhere: allow
 
 NFS (`10.0.0.20`) is **not** exposed to IoT/Guest.
 
@@ -224,10 +275,10 @@ NFS (`10.0.0.20`) is **not** exposed to IoT/Guest.
 
 ## Remote Access
 
-- **Primary**: Tailscale, with **subnet routing** advertising `10.0.0.0/24` from
-  a stable always-on node or LXC — **not** the fourth machine. Approve the route
-  in the Tailscale admin console. This gives full LAN reachability off-site with
-  no open ports.
+- **Primary**: Tailscale, with **subnet routing** advertising `10.0.0.0/24` —
+  later the whole `10.0.0.0/16`, which is the point of the supernet — from a
+  stable always-on node or LXC (**not** the fourth machine). Approve the route in
+  the Tailscale admin console. Full LAN reachability off-site, no open ports.
 - **Public services**: Cloudflare Tunnel via Caddy — see
   [Reverse Proxy and External Access](#reverse-proxy-and-external-access).
 - **Optional**: Omada WireGuard for full-tunnel road warriors.
@@ -241,16 +292,19 @@ Tailscale is the standard. **Headscale is not used.**
 | Layer | What |
 |-------|------|
 | Git | Compose stacks, docs, Caddyfile, DNS record templates |
-| Encrypted restic | `.env`, `site.env`, API keys |
-| Omada | Monthly site export |
+| **Restic** | Node-local `/opt/appdata/**`, ZFS-snapshot-quiesced → shared repo on Tartarus |
+| Omada / MikroTik | Site export; RouterOS config export |
 | TrueNAS | Config + ZFS snapshots |
 | Proxmox | `vzdump` → `tartarus/proxmox` |
-| Appdata | `/mnt/storage/appdata/**` snapshots |
+| **Off-box** | `restic copy` to an external drive — **not yet done** |
 
-**Restore drill**: time a full LXC + one stack + Omada import before relying on backups.
+App-state backup rules in full: [DECISIONS.md](./DECISIONS.md) D12.
 
-See also the unresolved backup risk in
-[Open Questions](#open-questions--known-risks).
+**Restore drill**: time a full LXC + one stack + config restore before relying on
+backups. A backup that has never been restored is still an assumption.
+
+Nothing lives off Tartarus yet — see
+[OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md#nothing-lives-off-tartarus-yet).
 
 ---
 
@@ -271,105 +325,25 @@ Detailed steps: [network-implementation-phases.md](./network-implementation-phas
 
 ## Open Questions / Known Risks
 
-Raised and reasoned through, but **not ratified**. Nothing here is implemented —
-do not change architecture or Compose files to act on these until they are
-decided and moved into [DECISIONS.md](./DECISIONS.md).
+Moved to a dedicated file so it pairs with the decision log and can shrink as
+items are settled: **[OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md)**.
 
-### SQLite on NFS (highest-risk open item)
+Nothing there is implemented. Highlights as of 2026-09-26:
 
-The `io` and `asteria` stacks share an NFS path on `sisyphus` so the Arr apps can
-hardlink instead of copy. That is correct for **media and download data**. But
-Radarr, Sonarr, Prowlarr, Bazarr, Immich, and Paperless all keep SQLite/Postgres
-databases, and SQLite over NFS has unreliable locking and a well-known corruption
-failure mode.
-
-Proposed rule, **pending confirmation**: media and downloads on NFS; `/config`
-volumes on node-local storage; scheduled backup of configs to Tartarus.
-
-**Open:** does each node actually have local SSD available to hold configs?
-
-### Rhea is a single point of failure for its own monitoring
-
-Uptime Kuma, ntfy, Dozzle, and primary DNS currently all live on Rhea. If Rhea
-goes down there is no monitoring and no notification path — the failure is
-silent.
-
-Proposed, **pending confirmation**: move Uptime Kuma and ntfy to Themis. A
-monitor must not share a failure domain with what it monitors.
-
-### Secondary DNS is not real failover
-
-Clients typically query both resolvers rather than cleanly failing over. Two
-Pi-holes with different blocklists produce inconsistent blocking, not redundancy.
-Either keep them synced (Gravity Sync or equivalent), or document that the
-secondary is availability-only and not policy-parity.
-
-Related: **the Proxmox hosts themselves should not use Pi-hole as their
-resolver.** Point them at `10.0.0.1` + `1.1.1.1` so DNS recovery is not circular
-when the Pi-hole node is down.
-
-### Backup story
-
-Proxmox dumps, the `sisyphus-migrator` rsync, and live data all land on Tartarus.
-RAID and one-way rsync are not backups — a bad delete or a pool loss takes
-everything. At least one copy needs to live off that box. **Unresolved.**
-
-### Watchtower and Docker socket exposure
-
-- Watchtower auto-updating ~29 services invites breakage from upstream changes.
-  Proposed: run in monitor-only mode (`WATCHTOWER_MONITOR_ONLY`), notify via
-  ntfy, pull deliberately.
-- Dozzle and Watchtower both mount `/var/run/docker.sock`, which is
-  root-equivalent. Proposed: put a socket-proxy in front of both with read-only
-  scopes.
-
-### qBittorrent — host lockup, sizing pinned
-
-qBittorrent in an LXC on a Proxmox node repeatedly **hard-locked the entire
-host**, requiring a physical reset. It was moved to the fourth machine as a
-workaround. The intent is to bring it back onto the cluster.
-
-Working theory: host OOM from an unbounded LXC. Many hundreds of torrents,
-downloading and seeding simultaneously, drives large per-torrent state plus disk
-cache; without an enforced container memory limit this pressures the host.
-
-Mitigations to apply when it returns — **sizing not final**:
-
-- hard memory limit on the container, so it OOMs inside its own boundary
-- explicit qBittorrent disk-cache cap rather than auto
-- bounded global and per-torrent connection limits
-- active-torrent queueing, so not every torrent runs hot
-- incomplete-downloads folder on node-local SSD, moved to NAS on completion
-
-**Blocked on:** total RAM of the weakest node.
-
-### Other flagged items
-
-- **No auth layer** in front of File Browser, Dozzle, or Homepage. Matters if
-  anything becomes LAN-reachable rather than Tailscale-only.
-- **Home Assistant OS VM** uses USB/Zigbee passthrough, which pins it to Themis
-  and makes it ineligible for live migration — so it cannot participate in
-  Proxmox HA. Either accept that, or decouple with a network Zigbee coordinator.
-  Also: place the coordinator where the Zigbee mesh needs it, not where the rack
-  is.
-- **Immich is on Themis but the QuickSync GPU is on Hestia.** Its ML workload
-  would benefit from the GPU. Either move it, or accept CPU-only detection.
-- **Omada software controller** should not go on Rhea (already overloaded).
-  Themis, or a small LXC on Hestia.
-- **Proxmox HA vs Kubernetes** — leaning Proxmox HA, since the workload is
-  overwhelmingly single-instance stateful containers. Note that HA needs shared
-  storage, which makes Tartarus a cluster-wide single point of failure — so the
-  backup story should be resolved first.
-- The Compose stubs **Tracktor**, **ShipShipShip**, and **ListingLab** are still
-  waiting on user-provided images.
+- **Second-tier storage is a purchase**, not a re-use — all three 2.5" bays are
+  empty. Gates qBittorrent's return to the cluster.
+- **Transcode/media placement is reopened** — Themis also does H.265 and is
+  faster, but Hestia has 2× the disk.
+- **Nothing lives off Tartarus yet.** Must be solved before Proxmox HA.
+- **`aeos` and the `atlas` remainder have no assigned node.**
+- **Rhea hosts its own monitoring** — a known cost of the D13 placement.
 
 ---
 
 ## Open Decisions (network build)
 
-Fill in before Phase 1:
-
-- [ ] Exact Omada switch / AP models (gateway is ER605, controller is OC200)
-- [ ] OC200 replacement or RMA — hardware currently faulty
-- [ ] Theater second switch: yes/no
+- [x] ~~Exact switch / AP models~~ — CRS310 core, EAP650 AP
+- [ ] OC200 replacement or RMA — no longer blocks VLANs, only Omada AP management
+- [ ] Turn on VLANs once the flat 2.5G network is proven
+- [ ] Dedicated corosync link if NICs are ever added (free SFP+ ports exist)
 - [ ] HomeKit/AirPlay: same-VLAN vs mDNS reflector

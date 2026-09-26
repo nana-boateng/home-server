@@ -12,7 +12,7 @@ services:
       - '32400:32400/udp'
       - '3005:3000'
     volumes:
-      - ${PROXMOX_DIR}/appdata/plex:/config
+      - ${APPDATA_DIR}/apollo/plex:/config
       - ${STORAGE_DIR}:/data
       - ${STORAGE_DIR}/transcode:/transcode
     restart: unless-stopped

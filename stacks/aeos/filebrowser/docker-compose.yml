@@ -7,6 +7,6 @@ services:
     ports:
       - '6006:8080'
     volumes:
-      - ${PROXMOX_DIR}/appdata/filebrowser:/config
+      - ${APPDATA_DIR}/aeos/filebrowser:/config
       - ${STORAGE_DIR}:/srv
     restart: unless-stopped

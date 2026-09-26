@@ -9,5 +9,5 @@ services:
     ports:
       - '8001:8181'
     volumes:
-      - ${PROXMOX_DIR}/appdata/tautulli:/config
+      - ${APPDATA_DIR}/apollo/tautulli:/config
     restart: unless-stopped

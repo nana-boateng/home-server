@@ -9,6 +9,6 @@ services:
     ports:
       - "${SABNZBD_PORT}:8080"
     volumes:
-      - "./config:/config"
+      - "${APPDATA_DIR}/io/sabnzbd:/config"
       - "${STORAGE_DIR}:/storage"
     restart: unless-stopped

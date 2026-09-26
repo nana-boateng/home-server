@@ -58,11 +58,15 @@ Recommended subdirectories for `sisyphus`:
 ```text
 /mnt/tartarus/sisyphus/downloads
 /mnt/tartarus/sisyphus/media
-/mnt/tartarus/sisyphus/appdata
 /mnt/tartarus/sisyphus/shared
 ```
 
 These are plain directories inside one dataset, not child ZFS datasets.
+
+> **There is deliberately no `appdata/` here.** Runtime config and databases live
+> on **node-local ZFS**, never on NFS — see [DECISIONS.md](./DECISIONS.md) D11.
+> It is omitted rather than merely discouraged so the wrong path does not exist
+> to be used.
 
 Recommended subdirectories for `ixion` are user-data specific. Keep them separate
 from container write paths.
@@ -305,7 +309,6 @@ Use these paths consistently inside LXC containers:
 ```text
 /mnt/storage/downloads
 /mnt/storage/media
-/mnt/storage/appdata
 /mnt/storage/shared
 ```
 
@@ -322,37 +325,39 @@ asteria
 - Sonarr root/library paths -> /mnt/storage/media/tv
 - Radarr root/library paths -> /mnt/storage/media/movies
 - Lidarr root/library paths -> /mnt/storage/media/music
-- Prowlarr/Bazarr/supporting config -> /mnt/storage/appdata/asteria/<service>
 
 aeos
-- Homepage config -> /mnt/storage/appdata/aeos/homepage
-- Jellyseerr config -> /mnt/storage/appdata/aeos/jellyseerr
 - Shared artifacts -> /mnt/storage/shared
-
-apollo
-- Tautulli config -> /mnt/storage/appdata/apollo/tautulli
 ```
+
+**Config paths are not in this list, and must not be.** Every `/config` volume
+and every database lives on node-local ZFS at `/opt/appdata/<stack>/<service>`
+inside the guest.
 
 For Dockerized services, prefer `PUID=3004` and `PGID=3004` when the service
 needs write access to `sisyphus`.
 
-> **Open question — SQLite on NFS.** The paths above put app `/config`
-> directories on the NFS export. Radarr, Sonarr, Prowlarr, Bazarr, Immich, and
-> Paperless all keep SQLite/Postgres databases, and SQLite over NFS has
-> unreliable locking and a well-known corruption mode. The proposed rule —
-> **not yet ratified** — is media and downloads on NFS, `/config` on node-local
-> storage, with a scheduled config backup to Tartarus. See
-> [SQLite on NFS](./homelab-network-plan.md#sqlite-on-nfs-highest-risk-open-item).
+> **Decided: SQLite never goes on NFS.** SQLite over NFS has unreliable locking
+> and a well-known corruption mode, and Radarr, Sonarr, Prowlarr, Bazarr,
+> Immich, and Paperless all keep SQLite or Postgres databases. **Media and
+> downloads on NFS; `/config` and databases on node-local ZFS**, backed up to
+> Tartarus by Restic with a ZFS-snapshot quiesce. See
+> [DECISIONS.md](./DECISIONS.md) D11 and D12.
+>
+> Earlier revisions of this document prescribed config volumes on the NFS
+> export. That guidance was wrong and has been removed.
 
 ## Docker Notes
 
 For Dockerized services inside LXC containers:
 
 - Prefer real absolute bind mount paths such as
-  `/mnt/storage/appdata/asteria/sonarr` rather than symlinked paths under a
-  home directory.
+  `/opt/appdata/asteria/sonarr` rather than symlinked paths under a home
+  directory.
 - Pre-create bind mount source directories before `docker compose up` so Docker
   does not attempt to create and `chown` NFS-backed paths on its own.
+- Keep `/config` bind mounts on node-local ZFS (`/opt/appdata/<stack>/<service>`)
+  and only bulk data on `/mnt/storage`.
 - Keep Docker image / overlay / container runtime storage local to the
   container root disk. Do not move `/var/lib/docker` or `/var/lib/containerd`
   onto the NFS share unless you intentionally accept the tradeoffs.
@@ -361,9 +366,9 @@ Example:
 
 ```yaml
 volumes:
-  - /mnt/storage/appdata/asteria/sonarr:/config
-  - /mnt/storage/media:/media
-  - /mnt/storage/downloads:/downloads
+  - /opt/appdata/asteria/sonarr:/config   # node-local ZFS — never NFS
+  - /mnt/storage/media:/media             # NFS — bulk data
+  - /mnt/storage/downloads:/downloads     # NFS — bulk data
 ```
 
 If image pulls fail with `no space left on device` under
@@ -386,4 +391,4 @@ Recommended access model:
 
 - `nana` authenticates to SMB shares
 - `sisyphus` remains the service/write identity for containers
-- avoid SMB-sharing `appdata` unless there is a specific admin need
+- there is no `appdata` on `sisyphus` to share; config lives on the nodes

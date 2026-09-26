@@ -7,5 +7,5 @@ services:
     ports:
       - '11001:3001'
     volumes:
-      - ${PROXMOX_DIR}/appdata/uptime-kuma:/app/data
+      - ${APPDATA_DIR}/atlas/uptime-kuma:/app/data
     restart: unless-stopped

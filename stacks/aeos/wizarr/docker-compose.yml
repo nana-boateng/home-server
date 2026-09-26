@@ -9,5 +9,5 @@ services:
     ports:
       - '6003:5690'
     volumes:
-      - ${PROXMOX_DIR}/appdata/wizarr:/config
+      - ${APPDATA_DIR}/aeos/wizarr:/config
     restart: unless-stopped

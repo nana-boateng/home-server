@@ -7,5 +7,5 @@ services:
     ports:
       - "${BOXARR_PORT}:8888"
     volumes:
-      - "./config:/config"
+      - "${APPDATA_DIR}/asteria/boxarr:/config"
     restart: unless-stopped

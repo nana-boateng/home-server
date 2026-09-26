@@ -9,5 +9,5 @@ services:
     ports:
       - '9006:8080'
     volumes:
-      - ${PROXMOX_DIR}/appdata/tracktor:/config
+      - ${APPDATA_DIR}/helios/tracktor:/config
     restart: unless-stopped

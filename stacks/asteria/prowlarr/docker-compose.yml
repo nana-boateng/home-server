@@ -9,5 +9,5 @@ services:
     ports:
       - "${PROWLARR_PORT}:9696"
     volumes:
-      - "./config:/config"
+      - "${APPDATA_DIR}/asteria/prowlarr:/config"
     restart: unless-stopped

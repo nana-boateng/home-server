@@ -7,7 +7,7 @@ services:
     ports:
       - "${IMMICH_DROP_PORT}:8080"
     volumes:
-      - "./config:/config"
+      - "${APPDATA_DIR}/io/immich-drop:/config"
       - "${STORAGE_DIR}/photos:/photos"
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped

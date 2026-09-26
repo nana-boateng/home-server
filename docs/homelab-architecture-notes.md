@@ -6,8 +6,9 @@ from the TrueNAS/NFS/LXC permission model.
 
 Locked decisions live in [DECISIONS.md](./DECISIONS.md); addressing, DNS, and
 proxy design live in [homelab-network-plan.md](./homelab-network-plan.md).
-Unratified items are collected under
-[Open Questions / Known Risks](./homelab-network-plan.md#open-questions--known-risks).
+Unratified items are collected in [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md).
+Measured hardware — which drives every placement call below — is in
+[hardware-inventory.md](./hardware-inventory.md).
 
 ## Core Correction
 
@@ -35,8 +36,10 @@ Role: media hub
 
 Why:
 
-- Jasper Lake QuickSync is the best media/transcode feature in the cluster.
-- It should stay focused on media serving rather than download churn.
+- **1 TB boot disk — twice any other node.** This, not transcode, is Hestia's
+  real advantage.
+- H.265 QuickSync for playback.
+- Media locality: serving from the node that holds the library.
 
 Recommended services:
 
@@ -50,49 +53,58 @@ Recommended services:
 
 Suggestion:
 
-- Keep playback and transcode services here.
+- Keep playback services here for now.
 - Avoid moving the downloader stack onto this node.
+
+> **Do not hard-code "Hestia is the only transcode node."** Themis also does
+> H.265 and is the faster CPU. Plex and Jellyfin sit here **by choice** (disk
+> locality), not by hardware limit, and the call is
+> [explicitly reopened](./OPEN-QUESTIONS.md#transcode--media-placement-is-reopened).
 
 ### Rhea
 
-Role: control plane and always-on service node
+Role: **light always-on infrastructure node**
 
 Why:
 
-- Good low-power box for 24/7 workloads.
-- Natural fit for network-adjacent and orchestration services.
+- Weakest CPU in the cluster (N5095), so it should not carry heavy stacks.
+- Light infrastructure LXCs have tiny configs and negligible CPU demand — the
+  one thing an N5095 is genuinely fine at.
+- Its old 54 GiB pool constraint is **gone**; at ~457 GiB it is a peer on disk.
 
-Recommended services:
+Recommended services — small LXCs only:
 
-- Tailscale
-- `io`: Sabnzbd, qBittorrent, JDownloader, MeTube
-- `asteria`: Prowlarr, Sonarr, Radarr, Lidarr, Bazarr, related Arr tools
-- `aeos`: Homepage, Jellyseerr, Speedtest
+- Pi-hole + Unbound
+- Caddy
+- Uptime Kuma
+- ntfy
+- Omada software controller
+- Tailscale subnet router
 
-Not on Rhea:
+> **Do NOT put the heavy ~29-service control plane here.** The `io` and
+> `asteria` stacks belong on Themis. This reverses earlier guidance that routed
+> infrastructure *away* from Rhea — see [DECISIONS.md](./DECISIONS.md) D13 for
+> why both of that decision's premises expired.
 
-- **Pi-hole + Unbound** and **Caddy** are infrastructure LXCs and belong on a
-  quieter node — Themis or Hestia. See [DECISIONS.md](./DECISIONS.md) D6.
-- The **Omada software controller** should not go here either; Rhea is already
-  the busiest node.
-
-Suggestion:
-
-- Keep calling it the "brain" if you want.
-- Be careful calling it the "gateway" unless it is intentionally becoming a
-  real network choke point for the whole homelab.
+Caveat to accept knowingly: Uptime Kuma and ntfy now share a failure domain with
+DNS and the proxy, so if Rhea dies the alerting dies silently with it. That is
+the cost of the placement, tracked in
+[OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md#rhea-is-a-single-point-of-failure-for-its-own-monitoring).
 
 ### Themis
 
-Role: bursty compute and appliance host
+Role: **compute / appliance host + the heavy stacks**
 
 Why:
 
-- Better single-core performance than the N5095 nodes.
-- Good place for dedicated VM workloads and heavier background jobs.
+- Strongest node by a wide margin: i7-8700T, 6c/12t, up to 4.0 GHz.
+- H.265 QuickSync (UHD 630) — Immich ML is now GPU-accelerated here.
+- The right home for anything CPU-bound.
 
 Recommended services:
 
+- `io`: Sabnzbd, JDownloader, MeTube (qBittorrent is **blocked** — see below)
+- `asteria`: Prowlarr, Sonarr, Radarr, Lidarr, Bazarr, related Arr tools
 - Home Assistant OS VM
 - Immich
 - Paperless-ngx
@@ -102,15 +114,31 @@ Recommended services:
 
 Suggestion:
 
-- Home Assistant on a dedicated VM is the right call.
-- Immich may work well enough here, but watch performance and power.
-- If photo ML becomes a major workload, consider a future hardware upgrade
-  rather than forcing the older platform to be something it is not.
+- Home Assistant on a dedicated VM is the right call. Note its USB/Zigbee
+  passthrough pins it to this node and makes it ineligible for Proxmox HA.
+- Immich benefits from the QuickSync GPU here — the old "Immich is on the wrong
+  node for its GPU" problem is solved.
+
+> **Themis's limit is disk, not CPU:** ~446 GiB usable, tied with Rhea for
+> smallest. Watch capacity as the heavy stacks land.
+
+> **qBittorrent is not deployed here yet.** Sizing is settled but it needs an
+> incomplete-downloads folder on a second local SSD that does not exist. It
+> stays on the seedbox until the SATA SSDs are purchased — see
+> [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md#qbittorrent-stays-on-the-seedbox).
 
 ## Recommended Service Placement
 
 ```text
-Hestia
+Rhea — light infrastructure LXCs, outside Docker
+- Pi-hole + Unbound
+- Caddy
+- Uptime Kuma
+- ntfy
+- Omada software controller
+- Tailscale subnet router
+
+Hestia — media / storage hub (1 TB)
 - Apollo: Plex, Jellyfin, Tautulli, Maintainerr, Posterizarr
 - Audiobookshelf
 - Kavita
@@ -119,13 +147,9 @@ Hestia
 - ROMm
 - Channels-DVR
 
-Rhea
-- Tailscale
+Themis — compute / appliance + heavy stacks (6c/12t)
+- Io: Sabnzbd, JDownloader, MeTube        (qBittorrent blocked on hardware)
 - Asteria: Prowlarr, Sonarr, Radarr, Lidarr, Bazarr, Recyclarr
-- Io: Sabnzbd, qBittorrent, JDownloader, MeTube
-- Aeos: Homepage, Jellyseerr, Speedtest
-
-Themis
 - Home Assistant OS VM
 - Immich
 - Paperless-ngx
@@ -133,20 +157,23 @@ Themis
 - MySpeed
 - OpenGist
 
-Themis or Hestia (infrastructure LXCs, outside Docker)
-- Caddy
-- Pi-hole + Unbound
-- Tailscale subnet router
+Not yet assigned
+- Aeos: Homepage, Jellyseerr, Wizarr, Speedtest, ChangeDetection, File Browser
+- Atlas remainder: Dozzle, Watchtower
+
+Seedbox — outside the cluster, non-production
+- qBittorrent (until the SATA SSDs are purchased)
 ```
 
 Notes:
 
 - **Tautulli lives on Hestia**, in the `apollo` stack with the other
   Plex-adjacent services. Earlier notes placing it on Rhea in `aeos` were wrong.
-- Jellyseerr is a good fit on Rhea because it mainly coordinates with the Arr
-  stack and media server over the network.
+- **`aeos` and the rest of `atlas` have no assigned node.** Assign them
+  deliberately rather than letting the first deploy decide — tracked in
+  [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md#stack-placement-is-partly-unassigned).
 - Caddy and Pi-hole are **not** applications and do not belong in a Compose
-  stack — see [DECISIONS.md](./DECISIONS.md) D3, D4, D6.
+  stack — see [DECISIONS.md](./DECISIONS.md) D3, D4, and D13.
 
 ## Storage Layout
 
@@ -156,7 +183,6 @@ Recommended datasets and directory layout:
 /mnt/tartarus/sisyphus
   downloads/
   media/
-  appdata/
   shared/
 
 /mnt/tartarus/ixion
@@ -181,11 +207,13 @@ ixion    -> /mnt/personal, read-only by default
 
 Guidance:
 
-- `sisyphus` is the automation and app-write path.
+- `sisyphus` is the bulk-data path: `downloads/`, `media/`, `shared/`.
+- **There is no `appdata/` on `sisyphus`.** Runtime config lives on node-local
+  ZFS — see [DECISIONS.md](./DECISIONS.md) D11. It is omitted from the layout
+  deliberately, so the wrong thing is unavailable rather than merely discouraged.
 - `sisyphus` should remain one dataset with plain directories inside it.
-- Do not recreate `downloads`, `media`, `appdata`, or `shared` as child ZFS
-  datasets unless you intentionally want separate exports and separate storage
-  policy.
+- Do not recreate `downloads`, `media`, or `shared` as child ZFS datasets unless
+  you intentionally want separate exports and separate storage policy.
 - `ixion` is personal storage and should not be the default write target for
   containers.
 - If a container needs access to personal data, prefer a narrow mount or
@@ -193,7 +221,33 @@ Guidance:
 
 ### Service Path Conventions
 
-Use these conventions inside containers:
+**Two storage tiers, and the split is not negotiable.**
+
+| Tier | Path | Holds | Backed by |
+|---|---|---|---|
+| **Node-local ZFS** | `/opt/appdata/<stack>/<service>` | `/config`, databases, all runtime state | Restic → Tartarus (D12) |
+| **NFS (`sisyphus`)** | `/mnt/storage/...` | `downloads/`, `media/`, `shared/` — bulk data only | ZFS snapshots on Tartarus |
+
+> **Databases and `/config` never touch NFS.** SQLite over NFS has unreliable
+> locking and a well-known corruption mode, and Radarr, Sonarr, Prowlarr,
+> Bazarr, Immich, and Paperless all keep SQLite or Postgres databases.
+>
+> An earlier version of this document prescribed the opposite — config volumes
+> under `/mnt/storage/appdata/...`, pre-created on NFS-backed storage. **That was
+> the corruption path.** See [DECISIONS.md](./DECISIONS.md) D11.
+
+Config, on node-local ZFS:
+
+```text
+/opt/appdata/io/sabnzbd
+/opt/appdata/io/qbittorrent
+/opt/appdata/asteria/sonarr
+/opt/appdata/asteria/radarr
+/opt/appdata/apollo/tautulli
+/opt/appdata/aeos/homepage
+```
+
+Bulk data, on NFS:
 
 ```text
 io
@@ -206,26 +260,23 @@ asteria
 - /mnt/storage/media/tv
 - /mnt/storage/media/movies
 - /mnt/storage/media/music
-- /mnt/storage/appdata/asteria/prowlarr
-- /mnt/storage/appdata/asteria/sonarr
-- /mnt/storage/appdata/asteria/radarr
-- /mnt/storage/appdata/asteria/lidarr
-- /mnt/storage/appdata/asteria/bazarr
 
 aeos
-- /mnt/storage/appdata/aeos/homepage
-- /mnt/storage/appdata/aeos/jellyseerr
 - /mnt/storage/shared
-
-apollo
-- /mnt/storage/appdata/apollo/tautulli
 ```
+
+`io` and `asteria` must mount the **same** NFS export at the **same** path, or
+hardlinking breaks and imports silently double disk usage.
 
 For services that write to `sisyphus`, prefer running them as `3004:3004`.
 
-Use real bind paths under `/mnt/storage/...` in Docker Compose files rather
-than symlinked home-directory paths. Pre-create config directories before
-starting containers on NFS-backed storage.
+Use real bind paths in Docker Compose rather than symlinked home-directory
+paths. Pre-create bind-mount source directories before `docker compose up` so
+Docker does not create and `chown` them itself.
+
+**Compose files and `.env` are the source of truth in Git** — declarative
+configuration, not a state backup. State is backed up separately by Restic
+(D12).
 
 ## Networking
 
@@ -256,14 +307,16 @@ Suggestion:
 Settled elsewhere:
 
 - **Reverse proxy**: one central **Caddy** LXC fronts every service on every
-  node, with a static Caddyfile in this repo. Not on Rhea.
-  See [DECISIONS.md](./DECISIONS.md) D4 and D6.
-- **DNS**: Pi-hole + Unbound in a Proxmox LXC, split-horizon, on Themis or
-  Hestia. See D3 and D6.
-- **Remote access**: Tailscale with subnet routing for `10.0.0.0/24`. Headscale
-  is not used. See D7.
+  node, with a static Caddyfile in this repo. **On Rhea.**
+  See [DECISIONS.md](./DECISIONS.md) D4 and D13.
+- **DNS**: Pi-hole + Unbound in a Proxmox LXC, split-horizon, **on Rhea**.
+  See D3 and D13.
+- **Remote access**: Tailscale with subnet routing for `10.0.0.0/24`, later the
+  whole `10.0.0.0/16`. Headscale is not used. See D7.
+- **VLAN-ready addressing**: future VLANs use the third octet under a
+  `10.0.0.0/16` supernet, so Main never re-IPs. See D10.
 - Whether a **secondary Pi-hole** is real redundancy is
-  [still open](./homelab-network-plan.md#secondary-dns-is-not-real-failover) —
+  [still open](./OPEN-QUESTIONS.md#secondary-dns-is-not-real-failover) —
   clients query both resolvers rather than failing over cleanly.
 
 ## Backups
@@ -288,9 +341,14 @@ Important:
 
 - Test at least one real restore path.
 - A backup that has never been restored is still an assumption.
-- Everything currently lands on Tartarus, and RAID plus one-way rsync is not a
-  backup. Getting at least one copy off that box is
-  [an open, unresolved risk](./homelab-network-plan.md#backup-story).
+
+**App state is backed up by Restic**, per-node agents writing out to one shared
+deduplicated repo on Tartarus, quiesced with a ZFS snapshot so databases are
+copied atomically. Full rules: [DECISIONS.md](./DECISIONS.md) D12.
+
+Everything still lands on Tartarus, and RAID plus one-way rsync is not a backup.
+Getting at least one copy off that box is
+[an open, unresolved risk](./OPEN-QUESTIONS.md#nothing-lives-off-tartarus-yet).
 
 ## Final Direction
 

@@ -9,5 +9,5 @@ services:
     ports:
       - '10002:3000'
     volumes:
-      - ${PROXMOX_DIR}/appdata/pairdrop:/config
+      - ${APPDATA_DIR}/hera/pairdrop:/config
     restart: unless-stopped

@@ -9,5 +9,5 @@ services:
     ports:
       - '6002:5055'
     volumes:
-      - ${PROXMOX_DIR}/appdata/jellyseerr:/config
+      - ${APPDATA_DIR}/aeos/jellyseerr:/config
     restart: unless-stopped

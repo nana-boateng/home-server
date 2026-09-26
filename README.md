@@ -15,6 +15,10 @@ The core storage model is:
 The most important reference documents are:
 
 - [Decision Log](./docs/DECISIONS.md) — locked decisions and their rationale
+- [Open Questions](./docs/OPEN-QUESTIONS.md) — unratified items and known risks
+- [Hardware Inventory](./docs/hardware-inventory.md) — measured node specs
+- [Rebuild Runbook](./docs/rebuild-runbook.md) — the PVE 9 + `gaia` build
+- [Network Core — CRS310](./docs/network-core-crs310.md) — switch and port map
 - [Homelab Network Plan](./docs/homelab-network-plan.md)
 - [Network Implementation Phases](./docs/network-implementation-phases.md)
 - [TrueNAS to Proxmox Container Storage](./docs/truenas-proxmox-storage.md)
@@ -40,17 +44,39 @@ The design emphasizes:
 
 ## Proxmox Machines
 
-The cluster is organized around three main Proxmox nodes:
+Three nodes, clustered as **`gaia`** on PVE 9.2.2 with ZFS-on-root. Measured
+specs: [hardware-inventory.md](./docs/hardware-inventory.md).
 
-### Hestia
+Placement follows one rule: **put work where the hardware actually suits it**,
+which is not where earlier revisions of these docs assumed. See
+[DECISIONS.md](./docs/DECISIONS.md) D13.
 
-Hestia is the media hub. It is intended to host playback and transcode-heavy
-services because it has the strongest media-serving capabilities in the
-cluster.
+### Rhea — light always-on infrastructure
+
+Weakest CPU (N5095), so it carries small always-on LXCs rather than heavy
+stacks. Infrastructure whose failure takes down access to everything else
+belongs on managed, always-on hardware, and light infrastructure is the one
+thing an N5095 is genuinely fine at.
 
 Intended workloads:
 
-- Plex or Jellyfin
+- Pi-hole + Unbound
+- Caddy
+- Uptime Kuma
+- ntfy
+- Omada software controller
+- Tailscale subnet router
+
+**The heavy ~29-service control plane does not go here.**
+
+### Hestia — media / storage hub
+
+1 TB boot disk, **twice any other node**. That, not transcode, is its real
+advantage — Themis does H.265 too, and faster.
+
+Intended workloads:
+
+- `apollo` stack: Plex, Jellyfin, Tautulli, Maintainerr, Posterizarr
 - Channels-DVR
 - Audiobookshelf
 - Booklore
@@ -58,38 +84,26 @@ Intended workloads:
 - Meelo
 - ROMm
 
-### Rhea
+### Themis — compute / appliances + heavy stacks
 
-Rhea is the always-on control-plane node. It is the "brain" of the homelab and
-the natural home for download, automation, network-adjacent, and dashboard
-services.
+Strongest node by a wide margin (i7-8700T, 6c/12t) with H.265 QuickSync. Its
+limit is disk (~446 GiB), not CPU.
 
 Intended workloads:
 
-- Tailscale
-- `io` stack
+- `io` stack (qBittorrent excepted — see below)
 - `asteria` stack
-- `aeos` stack
-
-Pi-hole, Caddy, and the Omada software controller deliberately do **not** live
-here — Rhea is already the busiest node, and DNS and ingress belong somewhere
-quieter. See [DECISIONS.md](./docs/DECISIONS.md) D6.
-
-### Themis
-
-Themis is the bursty compute and appliance host. It is intended for heavier
-background jobs and standalone self-hosted appliances.
-
-Intended workloads:
-
 - Home Assistant OS VM
-- Immich
+- Immich — now GPU-accelerated here
 - Paperless-ngx
 - `helios` stack
 - MySpeed
 - OpenGist
 
-### Infrastructure LXCs (Themis or Hestia)
+`aeos` and the remainder of `atlas` (Dozzle, Watchtower) have **no assigned
+node** yet — see [OPEN-QUESTIONS.md](./docs/OPEN-QUESTIONS.md).
+
+### Infrastructure LXCs (on Rhea)
 
 DNS and the reverse proxy are infrastructure, not applications. They run as
 Proxmox LXCs outside Docker Compose, so restarting a stack can never take down
@@ -100,21 +114,43 @@ access to everything else.
   with a static Caddyfile committed to this repo
 - **Tailscale subnet router** — advertises `10.0.0.0/24` for off-site access
 
-### The fourth machine
+### The fourth machine (seedbox)
 
-A fourth box, same specs as the weakest node, stays **outside** the Proxmox
+A fourth box, same specs as the weakest node, stays **outside** the `gaia`
 cluster. It is explicitly **non-production**: experiments and disposable
 workloads only. It gets no snapshots and no backups, and nothing critical — least
 of all Caddy, Pi-hole, or the Tailscale subnet router — belongs on it.
 
+qBittorrent runs here for now, and stays until second-tier SSDs are purchased.
+
 ## Networking
 
-The LAN is `10.0.0.0/24`, gateway `10.0.0.1` (TP-Link ER605), DHCP pool
-`.100–.254`, statics in `.1–.99`. Service addresses are assigned **by service,
-not by node**, so an IP never implies where a service runs. The search domain is
-`.lan`; `.local` is reserved for mDNS and is not used anywhere.
+The LAN is `10.0.0.0/24`, gateway `10.0.0.1` (TP-Link ER605), with a **MikroTik
+CRS310** core switch. DHCP pool `.100–.254`, statics in `.1–.99`. Service
+addresses are assigned **by service, not by node**, so an IP never implies where
+a service runs. The search domain is `.lan`; `.local` is reserved for mDNS and is
+not used anywhere.
 
-Full detail: [Homelab Network Plan](./docs/homelab-network-plan.md).
+Future VLANs use the **third octet** under a `10.0.0.0/16` supernet (VLAN 10
+Main, 20 IoT, 30 Guest), so Main never re-IPs when they arrive. Tagging happens
+on the switch; routing and firewalling stay on the ER605.
+
+Full detail: [Homelab Network Plan](./docs/homelab-network-plan.md) and
+[Network Core — CRS310](./docs/network-core-crs310.md).
+
+## Storage Tiers
+
+Two tiers, and the split is load-bearing:
+
+| Tier | Path | Holds |
+|---|---|---|
+| Node-local ZFS | `/opt/appdata/<stack>/<service>` | `/config`, databases, runtime state |
+| NFS (`sisyphus`) | `/mnt/storage/...` | `downloads/`, `media/`, `shared/` |
+
+**Databases and `/config` never touch NFS** — SQLite over NFS has unreliable
+locking and a well-known corruption mode. Node-local state is backed up to
+Tartarus by **Restic**, quiesced with a ZFS snapshot so databases copy
+atomically. See [DECISIONS.md](./docs/DECISIONS.md) D11 and D12.
 
 ## Docker Stacks
 
@@ -237,12 +273,13 @@ Infrastructure and operational tooling.
 
 The storage layout is one of the most important parts of this repo.
 
-- `sisyphus` is the shared automation and app-write dataset
+- `sisyphus` is the shared bulk-data dataset
 - `ixion` is personal storage and should not be the default write target for
   containers
 - Proxmox nodes mount storage from TrueNAS over NFS
 - Containers see shared writable storage at `/mnt/storage`
 - Personal storage should be mounted narrowly and read-only by default
+- **Runtime config does not live here** — it is on node-local ZFS
 
 The recommended TrueNAS layout is:
 
@@ -250,7 +287,6 @@ The recommended TrueNAS layout is:
 /mnt/tartarus/sisyphus
   downloads/
   media/
-  appdata/
   shared/
 
 /mnt/tartarus/ixion

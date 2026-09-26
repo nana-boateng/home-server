@@ -9,5 +9,5 @@ services:
     ports:
       - '6004:80'
     volumes:
-      - ${PROXMOX_DIR}/appdata/speedtest:/config
+      - ${APPDATA_DIR}/aeos/speedtest:/config
     restart: unless-stopped

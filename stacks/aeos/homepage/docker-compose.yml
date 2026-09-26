@@ -7,6 +7,6 @@ services:
     ports:
       - '6001:3000'
     volumes:
-      - ${PROXMOX_DIR}/appdata/homepage:/app/config
+      - ${APPDATA_DIR}/aeos/homepage:/app/config
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped

@@ -9,6 +9,6 @@ services:
     ports:
       - "${JDOWNLOADER_PORT}:5800"
     volumes:
-      - "./config:/config"
+      - "${APPDATA_DIR}/io/jdownloader:/config"
       - "${STORAGE_DIR}/downloads/jdownloader:/output"
     restart: unless-stopped

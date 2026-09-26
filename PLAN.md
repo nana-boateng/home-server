@@ -42,6 +42,11 @@ A single NFS export containing both `downloads/` and `library/` under one mount 
 
 *\* Docker images to be provided by user before implementation*
 
+**Not stacks.** Pi-hole + Unbound and Caddy are infrastructure, not applications.
+They run as **Proxmox LXCs** on a quiet node (Themis or Hestia), outside Docker
+Compose, so that restarting a stack can never take down DNS or ingress. See
+[docs/DECISIONS.md](./docs/DECISIONS.md) D3, D4, D6.
+
 ---
 
 ## Port Allocation Scheme
@@ -140,6 +145,8 @@ home-server/
 │   ├── fstab.template                   # NFS fstab entries template
 │   ├── lxc-config.template              # Proxmox LXC bind mount template
 │   └── nfs-exports.example              # TrueNAS NFS export reference
+├── caddy/
+│   └── Caddyfile                        # Central reverse proxy: hostname → 10.0.0.x:port
 └── stacks/
     ├── io/
     │   ├── docker-compose.yml
@@ -214,6 +221,18 @@ volumes:
   - /mnt/storage:/storage              # Consistent path = hardlinks work
 ```
 
+> **Open question — SQLite on NFS.** The `/config` half of this rule matters more
+> than it looks. Radarr, Sonarr, Prowlarr, Bazarr, Immich, and Paperless all keep
+> SQLite/Postgres databases, and SQLite over NFS has unreliable locking and a
+> well-known corruption mode. Keeping `/config` on node-local storage (as written
+> above) while media and downloads stay on the shared NFS export is the proposed
+> rule, but it is **not yet ratified** — it depends on whether each node actually
+> has local SSD available. Note that
+> [docs/homelab-architecture-notes.md](./docs/homelab-architecture-notes.md)
+> still shows appdata under `/mnt/storage/appdata/...`, which contradicts this.
+> Tracked at
+> [SQLite on NFS](./docs/homelab-network-plan.md#sqlite-on-nfs-highest-risk-open-item).
+
 ---
 
 ## Inter-Stack Communication
@@ -240,13 +259,35 @@ Since stacks run on separate Proxmox VMs, services talk over the network via Tai
 
 ## External Access
 
-- **Tailscale**: All services accessible privately via mesh network
-- **Cloudflare Tunnels**: Only for public-facing services:
-  - Apollo: Plex (32400), Jellyfin (8096)
-  - Aeos: Jellyseerr (6002), Homepage (6001)
-  - Hera: ntfy (10001) — if mobile push notifications needed externally
+Design and rationale: [docs/DECISIONS.md](./docs/DECISIONS.md) D4, D5, D7.
 
-Cloudflared runs as a container in the stacks that need external access.
+- **Tailscale** is the primary path. Subnet routing advertises `10.0.0.0/24` from
+  a stable, always-on node or LXC (never the fourth machine), so the whole LAN is
+  reachable off-site with no open inbound ports.
+- **Caddy** — one central instance in its own Proxmox LXC — fronts every service
+  on every node. The Caddyfile is a static `hostname → 10.0.0.x:port` map,
+  committed to this repo. The Cloudflare DNS plugin handles DNS-01 challenges, so
+  internal-only services get real Let's Encrypt certs without any inbound
+  exposure.
+- **Cloudflare Tunnel** carries the genuinely public services out — no port
+  forwards, no open inbound ports on the home IP.
+
+| Service | Path | Notes |
+|---------|------|-------|
+| Plex (32400) | **Native Plex remote access** | Not proxied, not tunnelled |
+| Jellyfin (8096) | Cloudflare Tunnel → Caddy → **auth layer** | Cloudflare Access or Authentik, terminating at the proxy |
+| Jellyseerr (6002), Homepage (6001) | Caddy; tunnel only if remote users need them | Otherwise Tailscale-only |
+| ntfy (10001) | Cloudflare Tunnel | If mobile push is needed externally |
+
+**Jellyfin must not be exposed without an auth layer in front of it.** Unlike
+Plex it has no brokered remote-access model, and some of its API endpoints do not
+require authentication — app-level login alone is not sufficient. Authentication
+has to terminate at the proxy, before the request reaches Jellyfin.
+
+Several services (File Browser, Dozzle, Homepage) currently have **no auth layer
+at all**. That is fine while they are Tailscale-only, and a problem the moment
+anything makes them LAN- or internet-reachable — tracked as an
+[open question](./docs/homelab-network-plan.md#other-flagged-items).
 
 ---
 
@@ -298,3 +339,16 @@ After implementation, verify by:
 4. Inspect inter-stack references: *Arr apps reference `io:PORT` for download clients
 5. Inspect Gluetun networking: qBittorrent must use `network_mode: service:gluetun`
 6. Confirm `.env` files are gitignored and `.env.template` files are committed
+
+---
+
+## Open Questions
+
+Design questions raised but **not ratified** — including SQLite on NFS, the
+backup story, Watchtower and Docker socket exposure, monitoring sharing a failure
+domain with Rhea, and the qBittorrent host-lockup sizing — are collected in
+[docs/homelab-network-plan.md](./docs/homelab-network-plan.md#open-questions--known-risks).
+
+Nothing there is implemented. No service moves are approved; the current Compose
+placement stands until a decision lands in
+[docs/DECISIONS.md](./docs/DECISIONS.md).

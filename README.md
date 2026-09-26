@@ -14,6 +14,7 @@ The core storage model is:
 
 The most important reference documents are:
 
+- [Decision Log](./docs/DECISIONS.md) — locked decisions and their rationale
 - [Homelab Network Plan](./docs/homelab-network-plan.md)
 - [Network Implementation Phases](./docs/network-implementation-phases.md)
 - [TrueNAS to Proxmox Container Storage](./docs/truenas-proxmox-storage.md)
@@ -65,12 +66,14 @@ services.
 
 Intended workloads:
 
-- Pi-hole + Unbound
-- Headscale / WireGuard
-- Omada Controller
+- Tailscale
 - `io` stack
 - `asteria` stack
 - `aeos` stack
+
+Pi-hole, Caddy, and the Omada software controller deliberately do **not** live
+here — Rhea is already the busiest node, and DNS and ingress belong somewhere
+quieter. See [DECISIONS.md](./docs/DECISIONS.md) D6.
 
 ### Themis
 
@@ -85,6 +88,33 @@ Intended workloads:
 - `helios` stack
 - MySpeed
 - OpenGist
+
+### Infrastructure LXCs (Themis or Hestia)
+
+DNS and the reverse proxy are infrastructure, not applications. They run as
+Proxmox LXCs outside Docker Compose, so restarting a stack can never take down
+access to everything else.
+
+- **Pi-hole + Unbound** — split-horizon DNS, in an LXC rather than a container
+- **Caddy** — one central reverse proxy fronting every service on every node,
+  with a static Caddyfile committed to this repo
+- **Tailscale subnet router** — advertises `10.0.0.0/24` for off-site access
+
+### The fourth machine
+
+A fourth box, same specs as the weakest node, stays **outside** the Proxmox
+cluster. It is explicitly **non-production**: experiments and disposable
+workloads only. It gets no snapshots and no backups, and nothing critical — least
+of all Caddy, Pi-hole, or the Tailscale subnet router — belongs on it.
+
+## Networking
+
+The LAN is `10.0.0.0/24`, gateway `10.0.0.1` (TP-Link ER605), DHCP pool
+`.100–.254`, statics in `.1–.99`. Service addresses are assigned **by service,
+not by node**, so an IP never implies where a service runs. The search domain is
+`.lan`; `.local` is reserved for mDNS and is not used anywhere.
+
+Full detail: [Homelab Network Plan](./docs/homelab-network-plan.md).
 
 ## Docker Stacks
 
@@ -260,3 +290,8 @@ This repository is best understood as documentation plus Compose-based
 infrastructure-as-code for the homelab's desired state. Some documents describe
 the recommended direction, while the `stacks/` tree captures the current stack
 layout more concretely.
+
+**This repo is the source of truth.** Decisions that live only in a chat session
+do not survive — they get rediscovered and re-argued. Anything settled belongs in
+[docs/DECISIONS.md](./docs/DECISIONS.md); anything still unsettled belongs in
+[Open Questions / Known Risks](./docs/homelab-network-plan.md#open-questions--known-risks).

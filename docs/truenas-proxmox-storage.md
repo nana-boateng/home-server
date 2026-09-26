@@ -326,13 +326,23 @@ asteria
 
 aeos
 - Homepage config -> /mnt/storage/appdata/aeos/homepage
-- Tautulli config -> /mnt/storage/appdata/aeos/tautulli
 - Jellyseerr config -> /mnt/storage/appdata/aeos/jellyseerr
 - Shared artifacts -> /mnt/storage/shared
+
+apollo
+- Tautulli config -> /mnt/storage/appdata/apollo/tautulli
 ```
 
 For Dockerized services, prefer `PUID=3004` and `PGID=3004` when the service
 needs write access to `sisyphus`.
+
+> **Open question — SQLite on NFS.** The paths above put app `/config`
+> directories on the NFS export. Radarr, Sonarr, Prowlarr, Bazarr, Immich, and
+> Paperless all keep SQLite/Postgres databases, and SQLite over NFS has
+> unreliable locking and a well-known corruption mode. The proposed rule —
+> **not yet ratified** — is media and downloads on NFS, `/config` on node-local
+> storage, with a scheduled config backup to Tartarus. See
+> [SQLite on NFS](./homelab-network-plan.md#sqlite-on-nfs-highest-risk-open-item).
 
 ## Docker Notes
 

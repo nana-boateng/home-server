@@ -4,6 +4,11 @@ This note captures the recommended direction for the current homelab design,
 based on the existing 3-node Proxmox cluster and the storage lessons learned
 from the TrueNAS/NFS/LXC permission model.
 
+Locked decisions live in [DECISIONS.md](./DECISIONS.md); addressing, DNS, and
+proxy design live in [homelab-network-plan.md](./homelab-network-plan.md).
+Unratified items are collected under
+[Open Questions / Known Risks](./homelab-network-plan.md#open-questions--known-risks).
+
 ## Core Correction
 
 The stack should not be described as "UID/GID mapping (UID 1000)" anymore.
@@ -35,7 +40,7 @@ Why:
 
 Recommended services:
 
-- Plex or Jellyfin
+- `apollo`: Plex, Jellyfin, Tautulli, Maintainerr, Posterizarr
 - Channels-DVR
 - Audiobookshelf
 - Booklore
@@ -59,12 +64,17 @@ Why:
 
 Recommended services:
 
-- Pi-hole + Unbound
-- Headscale / WireGuard
-- Omada Controller
+- Tailscale
 - `io`: Sabnzbd, qBittorrent, JDownloader, MeTube
 - `asteria`: Prowlarr, Sonarr, Radarr, Lidarr, Bazarr, related Arr tools
-- `aeos`: Homepage, Jellyseerr, Tautulli, Speedtest
+- `aeos`: Homepage, Jellyseerr, Speedtest
+
+Not on Rhea:
+
+- **Pi-hole + Unbound** and **Caddy** are infrastructure LXCs and belong on a
+  quieter node — Themis or Hestia. See [DECISIONS.md](./DECISIONS.md) D6.
+- The **Omada software controller** should not go here either; Rhea is already
+  the busiest node.
 
 Suggestion:
 
@@ -101,7 +111,7 @@ Suggestion:
 
 ```text
 Hestia
-- Plex or Jellyfin
+- Apollo: Plex, Jellyfin, Tautulli, Maintainerr, Posterizarr
 - Audiobookshelf
 - Kavita
 - Booklore
@@ -110,12 +120,10 @@ Hestia
 - Channels-DVR
 
 Rhea
-- Pi-hole + Unbound
-- Headscale / WireGuard
-- Omada Controller
+- Tailscale
 - Asteria: Prowlarr, Sonarr, Radarr, Lidarr, Bazarr, Recyclarr
 - Io: Sabnzbd, qBittorrent, JDownloader, MeTube
-- Aeos: Homepage, Tautulli, Jellyseerr, Speedtest
+- Aeos: Homepage, Jellyseerr, Speedtest
 
 Themis
 - Home Assistant OS VM
@@ -124,14 +132,21 @@ Themis
 - Helios: Logseq, Stirling-PDF, Mealie, Grocy
 - MySpeed
 - OpenGist
+
+Themis or Hestia (infrastructure LXCs, outside Docker)
+- Caddy
+- Pi-hole + Unbound
+- Tailscale subnet router
 ```
 
 Notes:
 
-- Tautulli can stay on Rhea, but putting it on Hestia is also reasonable if
-  you want it physically close to Plex.
+- **Tautulli lives on Hestia**, in the `apollo` stack with the other
+  Plex-adjacent services. Earlier notes placing it on Rhea in `aeos` were wrong.
 - Jellyseerr is a good fit on Rhea because it mainly coordinates with the Arr
   stack and media server over the network.
+- Caddy and Pi-hole are **not** applications and do not belong in a Compose
+  stack — see [DECISIONS.md](./DECISIONS.md) D3, D4, D6.
 
 ## Storage Layout
 
@@ -199,9 +214,11 @@ asteria
 
 aeos
 - /mnt/storage/appdata/aeos/homepage
-- /mnt/storage/appdata/aeos/tautulli
 - /mnt/storage/appdata/aeos/jellyseerr
 - /mnt/storage/shared
+
+apollo
+- /mnt/storage/appdata/apollo/tautulli
 ```
 
 For services that write to `sisyphus`, prefer running them as `3004:3004`.
@@ -228,14 +245,26 @@ immich.lan
 homeassistant.lan
 ```
 
+The search domain is **`.lan`**. `.local` is reserved for mDNS and must not be
+used anywhere — see [DECISIONS.md](./DECISIONS.md) D2.
+
 Suggestion:
 
-- Add a secondary Pi-hole/Unbound somewhere outside Rhea if you want DNS
-  maintenance to feel less dramatic.
-- If you use a reverse proxy later, Rhea is a natural place for it unless you
-  intentionally build a dedicated ingress layer.
 - Use SMB for MacBook / human browsing and keep NFS as the Proxmox / LXC
   protocol.
+
+Settled elsewhere:
+
+- **Reverse proxy**: one central **Caddy** LXC fronts every service on every
+  node, with a static Caddyfile in this repo. Not on Rhea.
+  See [DECISIONS.md](./DECISIONS.md) D4 and D6.
+- **DNS**: Pi-hole + Unbound in a Proxmox LXC, split-horizon, on Themis or
+  Hestia. See D3 and D6.
+- **Remote access**: Tailscale with subnet routing for `10.0.0.0/24`. Headscale
+  is not used. See D7.
+- Whether a **secondary Pi-hole** is real redundancy is
+  [still open](./homelab-network-plan.md#secondary-dns-is-not-real-failover) —
+  clients query both resolvers rather than failing over cleanly.
 
 ## Backups
 
@@ -259,6 +288,9 @@ Important:
 
 - Test at least one real restore path.
 - A backup that has never been restored is still an assumption.
+- Everything currently lands on Tartarus, and RAID plus one-way rsync is not a
+  backup. Getting at least one copy off that box is
+  [an open, unresolved risk](./homelab-network-plan.md#backup-story).
 
 ## Final Direction
 

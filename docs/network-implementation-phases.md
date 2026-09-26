@@ -2,8 +2,14 @@
 
 Step-by-step walkthrough for the Omada + Proxmox + TrueNAS rebuild.
 Overview and design rationale: [homelab-network-plan.md](./homelab-network-plan.md).
+Locked decisions and their reasoning: [DECISIONS.md](./DECISIONS.md).
 
 Each phase ends with **verification** — do not advance until checks pass.
+
+> **Status:** Phase 1's Main VLAN is done — `10.0.0.0/24` is live on the ER605
+> with the `.100–.254` DHCP pool, and the hosts hold their statics. The IoT,
+> Guest, and VPN VLANs are not built yet; they need the Omada controller, and the
+> OC200 is currently faulty.
 
 ---
 
@@ -15,7 +21,8 @@ Each phase ends with **verification** — do not advance until checks pass.
 
 | Item | Record |
 |------|--------|
-| Omada gateway model + firmware | e.g. ER605 v2 |
+| Omada gateway model + firmware | **ER605** — record firmware |
+| Omada controller | **OC200** at `10.0.0.2` — currently faulty, RMA/replace |
 | Switch(es) + port count / 10G | Core + theater? |
 | AP model(s) | PoE from switch? |
 | Proxmox nodes | Hestia, Rhea, Themis — NIC count, 10G? |
@@ -33,11 +40,11 @@ devices:
   - name: tartarus
     mac: "aa:bb:cc:dd:ee:01"
     vlan: 1
-    ip: 10.1.0.40
+    ip: 10.0.0.20
   - name: rhea
     mac: "aa:bb:cc:dd:ee:02"
     vlan: 1
-    ip: 10.1.0.30
+    ip: 10.0.0.10
   # … every static host
 ```
 
@@ -80,19 +87,21 @@ PPPOE_PASS=
 
 ### 1.2 VLANs on gateway
 
+Main is live. The other three are **blocked on a working OC200**.
+
 Create LAN networks (Omada terminology varies by firmware):
 
-| Network name | VLAN ID | Gateway IP | DHCP pool |
-|--------------|---------|------------|-----------|
-| Main | 1 | 10.1.0.1/24 | 10.1.0.100–200 |
-| IoT | 2 | 10.2.0.1/24 | 10.2.0.100–200 |
-| Guest | 3 | 10.3.0.1/24 | 10.3.0.100–200 |
-| VPN | 4 | 10.4.0.1/24 | 10.4.0.100–200 |
+| Network name | VLAN ID | Gateway IP | DHCP pool | Status |
+|--------------|---------|------------|-----------|--------|
+| Main | 1 | 10.0.0.1/24 | 10.0.0.100–254 | **live** |
+| IoT | 2 | 10.2.0.1/24 | 10.2.0.100–200 | planned |
+| Guest | 3 | 10.3.0.1/24 | 10.3.0.100–200 | planned |
+| VPN | 4 | 10.4.0.1/24 | 10.4.0.100–200 | planned |
 
-**DHCP DNS (all VLANs):** primary `10.1.0.50`, secondary `10.1.0.51` (once Phase 3
-secondary exists; use `10.1.0.50` only until then).
+**DHCP DNS (all VLANs):** primary `10.0.0.50`, secondary `10.0.0.51` (once Phase 3
+secondary exists; use `10.0.0.50` only until then).
 
-Domain: `lan`
+Domain: `lan`. Never `local` — see [DECISIONS.md](./DECISIONS.md) D2.
 
 ### 1.3 Switch port profiles
 
@@ -112,7 +121,13 @@ Assign ports:
 
 ### 1.4 DHCP reservations
 
-Add every entry from Phase 0 inventory on **Main** VLAN.
+Add every entry from Phase 0 inventory on **Main** VLAN. Statics live in
+`.1–.99` per the [addressing scheme](./homelab-network-plan.md#addressing-scheme):
+`.2–.9` network gear, `.10–.29` physical hosts, `.30–.99` services.
+
+Service addresses are assigned **by service, not by node** — an IP must never
+imply which node a service runs on.
+
 IoT: reserve bridges (Hue, etc.) as you connect them.
 
 ### 1.5 WiFi SSIDs
@@ -130,7 +145,7 @@ Apply rules in order (see [homelab-network-plan.md](./homelab-network-plan.md)):
 1. Guest → private RFC1918: **deny**
 2. Guest → WAN: **allow**
 3. IoT → Main: **deny** (default)
-4. IoT → 10.1.0.50:53: **allow**
+4. IoT → 10.0.0.50:53: **allow**
 5. IoT → WAN: **allow**
 6. Main → IoT: **allow**
 7. VPN → Main: **allow**
@@ -144,8 +159,8 @@ Configure from `config/site.env`. Test:
 
 ### Verify Phase 1
 
-- [ ] Ping `10.1.0.1` from a Main client
-- [ ] IoT client gets `10.2.x`, cannot ping `10.1.0.30` (Rhea)
+- [ ] Ping `10.0.0.1` from a Main client
+- [ ] IoT client gets `10.2.x`, cannot ping `10.0.0.10` (Rhea)
 - [ ] Guest client has internet, cannot ping Main
 - [ ] WiFi SSIDs map to correct VLAN (check IP subnet)
 - [ ] Export Omada site backup → save off-box
@@ -171,7 +186,7 @@ Ownership: `sisyphus:sisyphus` (3004:3004) on sisyphus tree.
 ### 2.2 NFS export
 
 - Path: `/mnt/tartarus/sisyphus`
-- Authorized network: `10.1.0.0/24` only
+- Authorized network: `10.0.0.0/24` only
 - Maproot / mapall: `sisyphus`
 - NFSv3 (per existing doc) unless you standardize on v4
 
@@ -218,41 +233,63 @@ Add TrueNAS NFS `proxmox` dataset as Proxmox storage on each node.
 
 ---
 
-## Phase 3 — Control Plane (Rhea)
+## Phase 3 — Control Plane
 
-**Goal:** DNS works house-wide; Tailscale mesh; core automation stacks online.
+**Goal:** DNS and ingress work house-wide; Tailscale mesh; core automation stacks
+online.
 
-### 3.1 Pi-hole + Unbound
+Infrastructure (Pi-hole, Caddy) goes in **Proxmox LXCs on Themis or Hestia** —
+not Rhea, and never on the fourth machine. See [DECISIONS.md](./DECISIONS.md)
+D3, D4, D6.
 
-Deploy on Rhea (LXC or Compose — add stack when ready):
+### 3.1 Pi-hole + Unbound (LXC)
 
-- Listen on `10.1.0.50` (may need macvlan or host IP alias until VIP pattern settled)
+Deploy as a **Proxmox LXC**, with Unbound inside the same container. **Not** a
+Docker container and **not** part of a Compose stack — restarting a stack must
+never take down DNS.
+
+- Static `10.0.0.50`
 - Upstream: Unbound on localhost → recursive
+- **Split-horizon**: internal hostnames resolve to LAN IPs
 - Local DNS records: all `*.lan` hosts from [homelab-network-plan.md](./homelab-network-plan.md)
 
 Blocklists: default + optional custom
 
-### 3.2 Confirm DNS house-wide
+### 3.2 Caddy (LXC)
 
-Omada DHCP already points to `10.1.0.50`. From phone on WiFi:
+Deploy as a **Proxmox LXC** on the same quiet node.
+
+- One central instance fronts **every** service on **every** node
+- Static Caddyfile: `hostname → 10.0.0.x:port` — **committed to this repo**
+- Build with the **Cloudflare DNS plugin** for DNS-01 challenges, so
+  internal-only services get real Let's Encrypt certs with no inbound exposure
+- Public services go out over **Cloudflare Tunnel** — no port forwards
+- **Jellyfin** must sit behind Cloudflare Access or Authentik, terminating at the
+  proxy before Jellyfin sees the request
+- **Plex is not proxied** — it keeps its own native remote access
+
+### 3.3 Confirm DNS house-wide
+
+Omada DHCP already points to `10.0.0.50`. From phone on WiFi:
 
 ```bash
 nslookup tartarus.lan
 nslookup rhea.lan
 ```
 
-### 3.3 Tailscale
+### 3.4 Tailscale
 
-On each Proxmox host:
+Advertise the subnet route from a stable, always-on node or LXC — **not** the
+fourth machine:
 
 ```bash
-tailscale up --advertise-routes=10.1.0.0/24 --accept-routes
+tailscale up --advertise-routes=10.0.0.0/24 --accept-routes
 ```
 
 Enable subnet routes in Tailscale admin. Test from phone (cellular, TS on):
-ping `10.1.0.40`.
+ping `10.0.0.20`.
 
-### 3.4 Deploy stacks on Rhea
+### 3.5 Deploy stacks on Rhea
 
 Order:
 
@@ -264,7 +301,7 @@ Order:
 
 Clone repo to `/opt/stacks/home-server`, copy `.env` from templates.
 
-### 3.5 Homepage + Uptime Kuma
+### 3.6 Homepage + Uptime Kuma
 
 Point at `http://*.lan:PORT` using [PLAN.md](../PLAN.md) port map.
 
@@ -275,6 +312,8 @@ Point at `http://*.lan:PORT` using [PLAN.md](../PLAN.md) port map.
 - [ ] Radarr sees download path on shared NFS
 - [ ] Uptime Kuma green on gateway, tartarus, Pi-hole
 - [ ] Tailscale subnet routing works off-LAN
+- [ ] Caddy serves a valid Let's Encrypt cert for an internal-only hostname
+- [ ] Restarting a Compose stack does not interrupt DNS resolution
 
 ---
 
@@ -286,7 +325,7 @@ Point at `http://*.lan:PORT` using [PLAN.md](../PLAN.md) port map.
 
 - LXC + bootstrap: `apollo`
 - Pass QuickSync device for Jellyfin/Plex transcode
-- Static `10.1.0.31`, DNS `hestia.lan`, `plex.lan` → hestia
+- Static `10.0.0.12`, DNS `hestia.lan`, `plex.lan` → hestia
 - Connect Jellyseerr (on Rhea) to Plex/Jellyfin URLs
 
 Optional same node: Channels-DVR, Audiobookshelf, Kavita, ROMm
@@ -296,7 +335,9 @@ Optional same node: Channels-DVR, Audiobookshelf, Kavita, ROMm
 - **Home Assistant OS** — dedicated VM (USB/Zigbee/Z-Wave passthrough if used)
 - **Immich**, **Paperless-ngx** — VM or LXC per appetite
 - LXC + bootstrap: `helios`
-- Secondary Pi-hole at `10.1.0.51` (Unbound forward to primary or sync blocklists)
+- Secondary Pi-hole at `10.0.0.51` (Unbound forward to primary or sync blocklists).
+  Note this is **availability, not clean failover** — see the
+  [open question](./homelab-network-plan.md#secondary-dns-is-not-real-failover).
 
 HA networking: if IoT devices need mDNS, plan VLAN/firewall exception or put
 controller on IoT with Main access — document choice in `config/site.env`.
@@ -356,10 +397,15 @@ Create `config/MOVE-CHECKLIST.md` when ready; minimum steps:
 6. Pi-hole + Tailscale come up; test `*.lan` resolution
 7. Run Speedtest Tracker baseline; update Uptime Kuma
 
-### 5.4 Optional public access
+### 5.4 Public access
 
-If needed: Cloudflare Tunnels on Hestia/Rhea for Jellyseerr, ntfy — not required
-for Tailscale-only households.
+Public-facing services go out via **Cloudflare Tunnel** behind the central Caddy
+LXC — no port forwards, no open inbound ports on the home IP. Anything
+remote-user-facing (Jellyfin above all) sits behind an auth layer that terminates
+at the proxy. Plex keeps its own native remote access and is not proxied. See
+[DECISIONS.md](./DECISIONS.md) D5.
+
+A Tailscale-only household needs none of this.
 
 ### Verify Phase 5
 

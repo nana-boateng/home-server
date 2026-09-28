@@ -1,8 +1,5 @@
 include:
-  - path: logseq/docker-compose.yml
-  - path: trilium/docker-compose.yml
   - path: stirling-pdf/docker-compose.yml
-  - path: mealie/docker-compose.yml
   - path: grocy/docker-compose.yml
   - path: tracktor/docker-compose.yml
   - path: shipshipship/docker-compose.yml

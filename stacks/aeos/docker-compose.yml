@@ -4,4 +4,3 @@ include:
   - path: wizarr/docker-compose.yml
   - path: speedtest/docker-compose.yml
   - path: changedetection/docker-compose.yml
-  - path: filebrowser/docker-compose.yml

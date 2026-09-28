@@ -1,5 +1,4 @@
 include:
-  - path: gluetun/docker-compose.yml
   - path: qbittorrent/docker-compose.yml
   - path: sabnzbd/docker-compose.yml
   - path: jdownloader/docker-compose.yml

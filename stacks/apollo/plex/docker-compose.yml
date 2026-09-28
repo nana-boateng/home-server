@@ -7,6 +7,13 @@ services:
       - PUID=${UID}
       - PGID=${GID}
       - PLEX_CLAIM=${PLEX_CLAIM}
+    # QuickSync hardware transcoding. renderD128 only — never card1.
+    # RENDER_GID is the *container's* render group id; read it per-host with
+    # `getent group render` inside the LXC. Do not copy a host GID.
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    group_add:
+      - "${RENDER_GID}"
     ports:
       - '32400:32400'
       - '32400:32400/udp'
@@ -14,5 +21,8 @@ services:
     volumes:
       - ${APPDATA_DIR}/apollo/plex:/config
       - ${STORAGE_DIR}:/data
-      - ${STORAGE_DIR}/transcode:/transcode
+    # Transcode scratch is RAM, never NFS and never the NVMe.
+    # Keep the cap well under the media LXC's memory allocation (~8 GB).
+    tmpfs:
+      - /transcode:size=4g,mode=1777
     restart: unless-stopped

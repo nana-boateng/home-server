@@ -18,13 +18,13 @@ services:
       - |
         apk add --no-cache rsync coreutils
         mkdir -p /logs
-        ts="$(date +%Y%m%d-%H%M%S)"
-        log="/logs/${ts}.log"
+        ts="$$(date +%Y%m%d-%H%M%S)"
+        log="/logs/$${ts}.log"
         delete_flag=""
-        if [ "${RSYNC_DELETE}" = "true" ]; then
+        if [ "$${RSYNC_DELETE}" = "true" ]; then
           delete_flag="--delete-delay"
         fi
-        echo "[$(date -Iseconds)] syncing /source/ -> /target/" | tee -a "$log"
+        echo "[$$(date -Iseconds)] syncing /source/ -> /target/" | tee -a "$$log"
         rsync \
           -aH \
           --numeric-ids \
@@ -32,8 +32,8 @@ services:
           --append-verify \
           --human-readable \
           --info=progress2,stats2 \
-          ${delete_flag} \
-          ${RSYNC_EXTRA_OPTS} \
-          /source/ /target/ | tee -a "$log"
-        echo "[$(date -Iseconds)] sync completed" | tee -a "$log"
+          $${delete_flag} \
+          $${RSYNC_EXTRA_OPTS} \
+          /source/ /target/ | tee -a "$$log"
+        echo "[$$(date -Iseconds)] sync completed" | tee -a "$$log"
     restart: "no"

@@ -1,6 +1,6 @@
 services:
   shipshipship:
-    image: ${SHIPSINGSHIP_IMAGE}
+    image: ${SHIPSHIPSHIP_IMAGE}
     container_name: shipshipship
     environment:
       - TZ=${TZ}

@@ -23,7 +23,7 @@ A single NFS export containing both `downloads/` and `library/` under one mount 
 - **Atlas** — Infrastructure (Watchtower, Uptime Kuma, Dozzle)
 
 ### Service Moves
-- qBittorrent (full client + Gluetun VPN) → **Io** (was only a UI in Aeos)
+- qBittorrent (full client) → **Io** (was only a UI in Aeos)
 - Tautulli → **Apollo** (was in Aeos, but it's Plex-specific)
 - Maintainerr, Posterizarr → **Apollo** (Plex/Jellyfin ecosystem tools)
 - qBittorrent UI removed (the qBittorrent service includes its own web UI)
@@ -32,7 +32,7 @@ A single NFS export containing both `downloads/` and `library/` under one mount 
 
 | Stack | Purpose | Services |
 |-------|---------|----------|
-| **Io** | Data Pipeline | Gluetun (VPN), qBittorrent, Sabnzbd, JDownloader, MeTube, Immich Drop |
+| **Io** | Data Pipeline | qBittorrent, Sabnzbd, JDownloader, MeTube, Immich Drop |
 | **Asteria** | Media Management | Prowlarr, Radarr, Sonarr, Lidarr, Whisparr, Kapowarr, Bazarr, FlareSolverr, Linkarr, Boxarr, Aggregarr |
 | **Apollo** | Media Servers | Plex, Jellyfin, Tautulli, Maintainerr, Posterizarr |
 | **Helios** | Productivity | Logseq, Trilium, Stirling-PDF, Mealie, Grocy, Tracktor\*, ShipShipShip\*, OpenGist, ListingLab\* |
@@ -41,6 +41,12 @@ A single NFS export containing both `downloads/` and `library/` under one mount 
 | **Atlas** | Infrastructure | Watchtower, Uptime Kuma, Dozzle |
 
 *\* Docker images to be provided by user before implementation*
+
+> **Superseded in structure.** The seven stacks below are no longer the
+> deployment unit — see
+> [docs/service-architecture.md](./docs/service-architecture.md) for the 11-LXC +
+> VM map. This section remains accurate as a **service inventory and port
+> allocation**, which the new grouping does not change.
 
 **Not stacks.** Pi-hole + Unbound, Caddy, and the Tailscale subnet router are
 infrastructure, not applications. They run as **Proxmox LXCs on Rhea**, outside
@@ -60,8 +66,7 @@ Each stack gets a dedicated port range. Host ports are sequential within each ra
 ### Io — 5000 range
 | Service | Host Port | Container Port | Notes |
 |---------|-----------|---------------|-------|
-| Gluetun (control) | 5001 | 8000 | |
-| qBittorrent (via Gluetun) | 5002 | 8080 | Published on Gluetun container |
+| qBittorrent | 5002 | 8080 | Own IP and port — no VPN sidecar (D17) |
 | Sabnzbd | 5003 | 8080 | |
 | JDownloader | 5004 | 5800 | |
 | MeTube | 5005 | 8081 | |
@@ -293,7 +298,7 @@ has to terminate at the proxy, before the request reaches Jellyfin.
 Several services (File Browser, Dozzle, Homepage) currently have **no auth layer
 at all**. That is fine while they are Tailscale-only, and a problem the moment
 anything makes them LAN- or internet-reachable — tracked as an
-[open question](./docs/OPEN-QUESTIONS.md#no-auth-layer-on-internal-tools).
+[open question](./docs/OPEN-QUESTIONS.md#unified-auth-layer).
 
 ---
 
@@ -320,7 +325,7 @@ anything makes them LAN- or internet-reachable — tracked as an
 7. `stacks/hera/docker-compose.yml` + `.env.template` (ntfy, PairDrop)
 
 ### Phase 3: Stacks — Data Pipeline
-8. `stacks/io/docker-compose.yml` + `.env.template` (Gluetun, qBittorrent, Sabnzbd, etc.)
+8. `stacks/io/docker-compose.yml` + `.env.template` (qBittorrent, Sabnzbd, etc.)
 
 ### Phase 4: Stacks — Media
 9. `stacks/asteria/docker-compose.yml` + `.env.template` (*Arr suite)
@@ -343,7 +348,6 @@ After implementation, verify by:
 2. Run `docker compose -f stacks/<stack>/docker-compose.yml config` for each stack — validates compose syntax
 3. Inspect volume mappings: all media stacks must map `/mnt/storage:/storage`
 4. Inspect inter-stack references: *Arr apps reference `io:PORT` for download clients
-5. Inspect Gluetun networking: qBittorrent must use `network_mode: service:gluetun`
 6. Confirm `.env` files are gitignored and `.env.template` files are committed
 
 ---

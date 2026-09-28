@@ -92,6 +92,10 @@ reviewed, diffed, and restored.
 
 ### D5 — Public access via Cloudflare Tunnel; Jellyfin behind auth; Plex native
 
+> **Extended by [D19](#d19--immich-gets-https-before-anyone-is-onboarded) (2026-09-27)**
+> — Immich's exposure model is settled, and the Plex rationale is sharpened
+> below in D18.
+
 - **Public services** (Jellyfin, and any remote-user-facing service) go out via
   **Cloudflare Tunnel** — no port forwards, no open inbound ports on the home IP.
 - **Jellyfin must sit behind an auth layer** — Cloudflare Access or Authentik.
@@ -187,7 +191,7 @@ re-IPs**, one Tailscale route covers every VLAN, and firewall rules stay simple.
 **Running flat today.** VLANs are no longer blocked on a working Omada
 controller — the MikroTik does VLAN tagging itself ([D15](#d15--network-core-mikrotik-crs310-router-on-a-stick)).
 They are deferred only by the deliberate choice to prove the flat 2.5G network
-first. See [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md#vlan-rollout-is-deferred-not-blocked).
+first. See [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md#vlan-rollout).
 
 ### D11 — Runtime config on node-local ZFS; NFS carries bulk data only
 
@@ -236,6 +240,10 @@ service's config from Tartarus → `docker compose up`.
 
 ### D13 — Infrastructure runs on Rhea (supersedes D6)
 
+> **Refined by [D22](#d22--service-layer-11-lxcs--1-vm-grouped-by-failure-domain) (2026-09-27)**
+> — the node-level rule stands; the full service map is now in
+> [service-architecture.md](./service-architecture.md).
+
 Caddy and Pi-hole remain infrastructure rather than applications, and still run
 as **LXCs on the cluster, never on the fourth non-clustered box**. What changes
 is the node: **they run on Rhea.**
@@ -263,9 +271,11 @@ never in question.
 | **Themis** | Compute / appliance + heavy stacks (6c/12t, fastest) | `io`, `asteria`, Immich, Paperless, Home Assistant VM, `helios` |
 
 Hestia's real edge is **disk capacity**, not exclusive transcode ability — both
-it and Themis do H.265. Plex and Jellyfin stay on Hestia **by choice** (media
-locality), not by hardware limit, and that call is
-[explicitly reopened](./OPEN-QUESTIONS.md#transcode--media-placement-is-reopened).
+it and Themis do H.265, and Themis's iGPU is in fact the stronger one.
+
+> **Settled by [D22](#d22--service-layer-11-lxcs--1-vm-grouped-by-failure-domain)
+> (2026-09-27):** media stays on Hestia. It keeps load on the idle node, and
+> Hestia's blast radius now includes other people. No longer an open question.
 
 ### D14 — ZFS-on-root on all three nodes
 
@@ -317,3 +327,166 @@ remembered hardware are decisions made against fiction.
 
 The same file carries the **Rhea `snd_hda_intel` blacklist**, which does not
 survive a reinstall and must be reapplied if Rhea is ever rebuilt.
+
+---
+
+## 2026-09-27
+
+Context: two full service-layer passes are complete — pass 1 evaluated all ~46
+services individually, pass 2 pressure-tested each grouping. The result is
+[service-architecture.md](./service-architecture.md).
+
+### D17 — No VPN: gluetun and the killswitch design are removed
+
+gluetun is deleted. **qBittorrent becomes an ordinary container with its own IP
+and port.**
+
+**Rationale.** qBittorrent is not used for anything needing IP concealment, so
+the tunnel has no job. Per-downloader analysis, recorded so it is not
+re-litigated: **only qBittorrent would ever have needed it**, since BitTorrent
+announces your IP to peers; sabnzbd, jdownloader and metube neither need nor
+benefit from one.
+
+A note on what was actually there: the gluetun service existed, carried a live
+Mullvad key, and was included in the `io` stack — but **no container ever set
+`network_mode: "service:gluetun"`**, so qBittorrent had been torrenting over the
+raw WAN since April. The choice was to wire it up or remove it; removal follows
+from the rationale above.
+
+> **Consequence for reading guides.** Nearly every arr and qBittorrent guide
+> binds the download client behind gluetun/WireGuard and runs Watchtower.
+> **SKIP those sections.** Both were deliberately removed. Isolating qBittorrent
+> into `grab` with no VPN is a considered divergence from the reference pattern,
+> not a mistake to correct.
+
+### D18 — Plex keeps native remote access; Caddy needs a custom build
+
+Two refinements to [D4](#d4--caddy-is-the-reverse-proxy-in-its-own-lxc) and
+[D5](#d5--public-access-via-cloudflare-tunnel-jellyfin-behind-auth-plex-native).
+
+**Plex stays unproxied.** Two friends stream remotely, plus owner travel, and
+**Plex's own relay handles that better than Caddy would**. A manual 32400 port
+forward is a fallback only, not the design.
+
+**Caddy needs a custom build carrying the Cloudflare DNS plugin** — `xcaddy` or
+a bundling image. The stock image does not have it, so DNS-01 will not work out
+of the box. This is a build-time prerequisite, not a configuration step.
+
+**Traefik is structurally unavailable in this topology**, which retires the
+Caddy-vs-Traefik question permanently: Traefik discovers services through the
+Docker socket, and there is one socket per daemon. With daemons spread across
+many LXCs, a single Traefik cannot see them. Caddy's static Caddyfile does not
+care where a service runs.
+
+### D19 — Immich gets HTTPS before anyone is onboarded
+
+**Stand up HTTPS in front of Immich before onboarding any family or friends.**
+Retrofitting it means touching every phone twice.
+
+The real Immich stays **internal-only and off Cloudflare Tunnel**. Two purpose-
+built services carry the outside traffic instead: **immich-drop** for inbound
+zero-login uploads, and **immich public proxy** for outbound password-protected
+share links. Running both is what keeps the main instance unexposed.
+
+Immich holds the most irreplaceable data in the lab, and needs **both** the
+database and the media filesystem protected.
+
+### D20 — Force all DNS through Pi-hole; never list a public resolver as secondary
+
+Clients are forced through Pi-hole using **CRS310 NAT rules**.
+
+> **Never list a public resolver as secondary DNS in DHCP.**
+
+**Rationale.** "Secondary DNS" is not failover. Clients query both resolvers
+unpredictably, or wait an age, or cache the primary and never try the backup —
+so a public secondary means queries leak past Pi-hole at random. Real redundancy
+needs a **second Pi-hole plus a Keepalived VRRP floating VIP**, with clients and
+DHCP pointing only at the VIP. That is
+[open, not built](./OPEN-QUESTIONS.md#dns-redundancy).
+
+> **When the second Pi-hole exists: never update both at once.** A bad update
+> with both down means zero redundancy at exactly the wrong moment.
+
+Extends [D2](#d2--search-domain-is-lan) and
+[D3](#d3--pi-hole-runs-as-a-proxmox-lxc-not-a-docker-container).
+
+### D21 — The download flow is load-bearing
+
+Extends [D11](#d11--runtime-config-on-node-local-zfs-nfs-carries-bulk-data-only).
+Holds identically for Radarr, Sonarr and abs-arr:
+
+```text
+incomplete  ->  themis-500/incomplete   (local HDD scratch)
+complete    ->  sisyphus/downloads      (NFS)
+import      ->  sisyphus/media          (NFS — same filesystem)
+```
+
+Complete and import share a filesystem, **so hardlinks work and seeding
+continues**.
+
+Two rules that break the pipeline silently when violated:
+
+- **Completed torrents from `grab` must land on the shared `sisyphus` path
+  mounted at an IDENTICAL path string in both `grab` and `arr`.** A different
+  path string on either side and hardlinks fail.
+- **Mount storage as a SINGLE unified root**, never separate `/downloads` and
+  `/movies`. Split mounts break atomic moves and hardlinks.
+
+**Incomplete goes on the HDD scratch pool**, not the NVMe: sequential writes, no
+SSD wear, and the data is disposable.
+
+**Mount first, then wire.**
+
+### D22 — Service layer: 11 LXCs + 1 VM, grouped by failure domain
+
+The full map, with per-service build notes and the grouping rationale, is
+[service-architecture.md](./service-architecture.md). The governing principle:
+
+**Isolation is bought deliberately, and a Docker daemon is a shared-fate unit** —
+splitting compose files on one daemon buys nothing. So: **one Docker daemon per
+coupling group, in its own LXC**. The bill is networking: same LXC → container
+name, different LXC → IP and port.
+
+Node placement:
+
+| Node | Carries |
+|---|---|
+| **Rhea** | `dns`, `proxy`, `tailscale`, `omada` — native daemons, deliberately underloaded |
+| **Hestia** | `media`, `monitor`, `apps`, `immich` |
+| **Themis** | `arr`, `grab`, `sandbox`, `homeassistant` (VM) |
+
+Consequences worth stating on their own:
+
+- **The seven old stacks are not the deployment unit.** `aeos`, `helios`,
+  `atlas` and `hera` dissolve; `io`, `asteria` and `apollo` survive as `grab`,
+  `arr` and `media`. `stacks/<name>/` in this repo is an **inventory, not a
+  placement map**.
+- **`monitor` resolves via `10.0.0.1`, not Pi-hole**, so it can still alert when
+  Rhea is down. Uptime Kuma must also have an **off-Hestia notification path**
+  for host-down events.
+- **Media stays on Hestia** despite Themis having the stronger iGPU — it keeps
+  load on the idle node, and Hestia's blast radius now includes other people.
+- **Watchtower is dropped** for what's-up-docker (notify-only). Auto-`:latest`
+  recreate is the top self-inflicted-downtime cause.
+- **HAOS must be a VM**, not an LXC — it needs UEFI, its own kernel, and
+  Supervisor access.
+
+Services added, dropped and replaced in this pass are listed in
+[service-architecture.md](./service-architecture.md); rejections carry their
+reasons so they are not re-proposed.
+
+### D23 — Reclaimerr runs report-only until off-box backup exists
+
+**Reclaimerr is the only tool in the stack that permanently deletes media.**
+Build it, configure it, and run **DRY-RUN / REPORT-ONLY ONLY**.
+
+**Scheduled deletion stays OFF until a genuine off-box backup exists.**
+
+**Rationale.** [D12](#d12--app-state-backup-restic-per-node-agents)'s
+Restic-to-Tartarus is **on-box**. It protects against disk and container loss; it
+does **not** protect against a bad Reclaimerr rule, because the deletion
+propagates to the backup. Enabling scheduled deletion before the off-box copy
+exists would make a single misconfigured rule unrecoverable.
+
+This makes [off-box backup](./OPEN-QUESTIONS.md#nothing-lives-off-tartarus-yet)
+a gating dependency rather than a nice-to-have.

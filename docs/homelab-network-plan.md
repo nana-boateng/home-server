@@ -174,8 +174,12 @@ Rules:
   never take down DNS.
 - Pi-hole serves **split-horizon DNS**: internal hostnames resolve to LAN IPs.
 
-Placement: **Rhea** — see [Infrastructure Placement](#infrastructure-placement)
-below.
+Placement: the `dns` LXC on **Rhea** — see
+[Infrastructure Placement](#infrastructure-placement) below.
+
+**All clients are forced through Pi-hole using CRS310 NAT rules**, and **no
+public resolver is listed as secondary DNS in DHCP** — clients leak to it
+unpredictably. See [DECISIONS.md](./DECISIONS.md) D20.
 
 The Proxmox hosts themselves deliberately resolve via the router (`10.0.0.1`),
 **not** Pi-hole, so DNS recovery is not circular when the Pi-hole LXC is down.
@@ -189,16 +193,22 @@ the static, version-controllable Caddyfile.
 
 - **One central Caddy instance fronts every service on every node.** The
   Caddyfile is a static `hostname → 10.0.0.x:port` map and **lives in this repo**.
-- **Caddy Cloudflare DNS plugin** for DNS-01 challenges, so internal-only
-  services get real Let's Encrypt certificates with no inbound exposure. Domains
-  are on Cloudflare.
+- **Caddy needs a custom build carrying the Cloudflare DNS plugin** (`xcaddy` or
+  a bundling image) for DNS-01 challenges, so internal-only services get real
+  Let's Encrypt certificates with no inbound exposure. The stock image does not
+  include it. Domains are on Cloudflare.
 - **Public services** (Jellyfin, and anything else remote users touch) go out via
   **Cloudflare Tunnel** — no port forwards, no open inbound ports on the home IP.
 - **Jellyfin must sit behind an auth layer** (Cloudflare Access or Authentik).
   Unlike Plex, Jellyfin has no brokered remote-access model, and some of its API
   endpoints do not require authentication — app-level login alone is not enough.
   Auth must terminate at the proxy, **before** Jellyfin sees the request.
-- **Plex keeps its own native remote access.** Do not proxy it.
+- **Plex keeps its own native remote access.** Do not proxy it — two friends
+  stream remotely plus owner travel, and Plex's relay handles that better than
+  Caddy would. A manual 32400 forward is a fallback only.
+- **Immich gets HTTPS before any family or friends are onboarded** — retrofitting
+  means touching every phone twice. The real Immich stays internal-only;
+  immich-drop and immich public proxy carry the outside traffic.
 
 ---
 
@@ -215,9 +225,16 @@ to everything else. They belong on managed, snapshotted, always-on hardware. The
 fourth machine sits outside the cluster, gets no snapshots or backups, and is
 expected to be repurposed and rebooted freely — the wrong home for a front door.
 
-**Rhea's full infrastructure load:** Pi-hole + Unbound, Caddy, Uptime Kuma, ntfy,
-the Omada software controller, and the Tailscale subnet router. Small LXCs with
-tiny configs.
+**Rhea's full infrastructure load:** `dns` (Pi-hole + Unbound), `proxy` (Caddy),
+`tailscale`, and `omada` — four native-daemon LXCs, no Docker, ~3.3 GB of RAM
+between them.
+
+Monitoring moved **off** Rhea to Hestia's `monitor` LXC, whose `resolv.conf`
+points at `10.0.0.1` rather than Pi-hole so it can still alert when Rhea is
+down.
+
+Rhea is light-infra because of **RAM and disk, not CPU** — it and Hestia are the
+same Beelink Mini S board, which makes them interchangeable if either fails.
 
 > **Do NOT put the heavy ~29-service control plane on Rhea.** Those stacks go to
 > Themis.
@@ -239,14 +256,19 @@ SSDs are purchased.
 
 ## Compute Placement
 
-| Node | Role | Stacks / services |
-|------|------|-------------------|
-| **tartarus** | Storage | NFS `sisyphus`, SMB `ixion`, Proxmox backups, Restic repo |
-| **rhea** | Light infrastructure (weakest CPU) | Pi-hole + Unbound, Caddy, Uptime Kuma, ntfy, Omada controller, Tailscale subnet router |
-| **hestia** | Media / storage hub (1 TB) | `apollo`, Channels-DVR, Audiobookshelf, … |
-| **themis** | Compute / appliances + heavy stacks (6c/12t) | `io`, `asteria`, HA OS VM, Immich, Paperless, `helios` |
-| *unassigned* | — | `aeos`, and the `atlas` remainder (Dozzle, Watchtower) |
-| **seedbox** | Non-production | Experiments, plus qBittorrent until the SSDs land |
+| Node | Role | LXCs / VM |
+|------|------|-----------|
+| **tartarus** | Storage | NFS `sisyphus` + `tantalus`, SMB `ixion`, Proxmox backups, Restic repo |
+| **rhea** | Light infrastructure, deliberately underloaded | `dns`, `proxy`, `tailscale`, `omada` |
+| **hestia** | Media, monitoring, apps, photos (1 TB) | `media`, `monitor`, `apps`, `immich` |
+| **themis** | Heavy compute (6c/12t, NVMe + HDD scratch) | `arr`, `grab`, `sandbox`, `homeassistant` (VM) |
+| **seedbox** | Non-production | Experiments only |
+
+Full map with per-service build notes:
+[service-architecture.md](./service-architecture.md).
+
+**Rhea hosts only native-daemon LXCs** — no Docker. The heavy stacks are on
+Themis; media and user-facing services on Hestia.
 
 Storage identity: **`sisyphus` UID/GID 3004** on NFS; see
 [truenas-proxmox-storage.md](./truenas-proxmox-storage.md).

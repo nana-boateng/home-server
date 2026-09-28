@@ -6,98 +6,39 @@ Raised, reasoned through, and **not ratified**. Nothing here is implemented.
 is settled, move it to [DECISIONS.md](./DECISIONS.md) with its rationale and
 delete it here — this file should shrink as the design firms up.
 
-Last reviewed: **2026-09-26**.
+Last reviewed: **2026-09-27**.
 
 ---
 
-## Blocked on hardware
+## Next hands-on task
 
-### Second-tier storage is a purchase, not a re-use
+### `/dev/dri` passthrough for `media`
 
-All three 2.5" SATA bays are **empty**. Earlier planning assumed an existing SSD
-could become a second local pool; that drive does not exist. **3× 2.5" SATA SSD
-must be purchased.**
+The immediate next build step. Host has `renderD128` (226:128) and
+`getent group render` → GID 993; **the container's GID differs and must be read
+separately.**
 
-Gates two things:
+Order matters — verify before Docker exists, because debugging passthrough
+through a Docker layer is much harder:
 
-- Bringing **qBittorrent** back onto the cluster (below).
-- VM-disk and scratch tiering generally.
+```bash
+# push the CT template to tantalus first
+pct create 200 --features nesting=1,keyctl=1 --unprivileged 1 --swap 0
+pct exec 200 -- getent group render
+pct set 200 -dev0 /dev/dri/renderD128,gid=<container-gid>,mode=0660
+vainfo                                   # verify BEFORE installing Docker
+```
 
-### qBittorrent stays on the seedbox
+> **`renderD128` only — never `card1`.**
 
-Sizing is settled; placement is not, because the disk it needs does not exist.
-
-When it returns it goes on **Themis or Hestia, never Rhea**, with:
-
-| Setting | Value |
-|---|---|
-| LXC `memory` | `4096` |
-| LXC `swap` | `0` — OOM inside its own boundary, not host swap |
-| qBittorrent disk cache | ~`1024` MiB (explicit, not auto) |
-| Global connections | ~`500` |
-| Connections per torrent | ~`50` |
-| Active downloads | `5` |
-| Active seeds | `20` |
-
-This configuration is what prevents the earlier full-host hard-lock, where an
-unbounded LXC drove the host out of memory and required a physical reset.
-
-**Blocked:** the incomplete-downloads folder was to live on a second local SSD
-pool. **Do not put it on the ZFS root pool** — torrent write patterns plus ZFS
-write amplification is precisely the workload that burns consumer NVMe
-endurance. **Leave qBittorrent on the seedbox until the SATA SSDs are bought.**
+The compose side is already in place: plex and jellyfin request
+`/dev/dri/renderD128` and take the GID from `RENDER_GID`.
 
 ---
 
-## Placement and architecture
+## Gating dependencies
 
-### Transcode / media placement is reopened
-
-Both Hestia and Themis do H.265, and **Themis is the faster node** — but Hestia
-has **2× the disk**. Earlier docs treated Hestia as the only transcode-capable
-node; that is no longer true and must not be hard-coded.
-
-| Option | Trade |
-|---|---|
-| **(a) Keep Plex/Jellyfin on Hestia** — *current call* | Media locality; transcode on the slower CPU |
-| (b) Move transcode to Themis | Faster transcode; media served over the network |
-| (c) Split — Plex on Hestia, Jellyfin on Themis | Hedges both; two places to maintain |
-
-Plex and Jellyfin stay on Hestia **by choice (disk locality)**, not by hardware
-limit. Decide this deliberately rather than by inertia.
-
-### Stack placement is partly unassigned
-
-The placement rule covers the infrastructure services, `apollo`, `io`,
-`asteria`, and `helios`. It does **not** say where `aeos` (Homepage, Jellyseerr,
-Wizarr, Speedtest, ChangeDetection, File Browser) goes, nor the remainder of
-`atlas` (Dozzle, Watchtower) once Uptime Kuma sits on Rhea. Assign these
-explicitly rather than letting them land wherever the first deploy puts them.
-
-### Proxmox HA vs Kubernetes
-
-Leaning **Proxmox HA** — the workload is overwhelmingly single-instance stateful
-containers, which is not what Kubernetes is good at.
-
-But HA needs shared storage, which makes **Tartarus a cluster-wide single point
-of failure**, so off-box backup has to be solved first.
-
-**New option worth evaluating alongside it:** ZFS is now live on all three nodes,
-so **ZFS replication between nodes** is genuinely available and is a
-lighter-weight alternative to full HA.
-
-### Home Assistant USB/Zigbee passthrough
-
-Passthrough pins the VM to one node, making it ineligible for Proxmox HA live
-migration. Either accept that, or decouple with a **networked Zigbee
-coordinator**.
-
-If decoupling: place the coordinator where the Zigbee mesh needs it, not where
-the rack happens to be.
-
----
-
-## Reliability and backup
+These block other work, so they are not merely nice-to-have.
 
 ### Nothing lives off Tartarus yet
 
@@ -105,85 +46,135 @@ Proxmox dumps, the Restic repo, and live data all land on the same box. **RAID
 plus one-way rsync is not a backup** — a bad delete or a pool loss takes
 everything.
 
-D12 specifies `restic copy` to an external drive. **It has not been done.** Until
-it is, the backup story is incomplete and Proxmox HA should not proceed.
+**This gates two things:**
 
-### Rhea is a single point of failure for its own monitoring
+- **Reclaimerr's scheduled deletion** ([D23](./DECISIONS.md)). Restic-to-Tartarus
+  is on-box; it does not protect against a bad deletion rule, because the
+  deletion propagates into the backup.
+- **Proxmox HA**, which would make Tartarus a cluster-wide SPOF.
 
-Uptime Kuma and ntfy sit on Rhea alongside DNS and the reverse proxy. **A monitor
-sharing a failure domain with what it monitors is weak** — if Rhea goes down
-there is no alerting and no notification path, so the failure is silent.
+Underlined hard by Immich, which holds the most irreplaceable data in the lab
+and wants 3-2-1 — **both** the database and the media filesystem.
 
-Consider a lightweight external check that can see Rhea from outside.
+### DNS redundancy
 
-Note this is a deliberate trade, not an oversight: D13 puts infrastructure on
-Rhea for good reasons. The monitoring overlap is the cost of that choice.
+DNS is the correctly-narrowed SPOF: proxy and Tailscale failing is annoying and
+recoverable, **DNS failing takes the whole network with it**.
 
-### Secondary DNS is not real failover
+Plan, not built: **a second Pi-hole on Hestia plus a Keepalived VRRP floating
+virtual IP**, with clients and DHCP pointing only at the VIP.
 
-Clients query both resolvers rather than cleanly failing over. Two Pi-holes with
-divergent blocklists produce **inconsistent blocking, not redundancy**.
+> **Never update both Pi-holes at once** — a bad update with both down means
+> zero redundancy at exactly the wrong moment.
 
-Either keep them synced (Gravity Sync or equivalent), or document the secondary
-as availability-only and not policy-parity.
+"Secondary DNS in DHCP" is confirmed **not** real failover: clients either query
+both, wait an age, or cache the primary and never try the backup. See
+[D20](./DECISIONS.md).
 
-### Corosync shares a single NIC per node
+### Unified auth layer
 
-Corosync is latency-sensitive, and it shares its NIC with guest and storage
-traffic. Heavy NFS or backup traffic can make it flap.
+**The biggest open architectural question in the utility layer.** Authentik or
+Authelia would cover Dozzle, Homepage, and the other internal tools that
+currently have no authentication at all.
 
-No fix today — one port per node. The CRS310's free SFP+ ports make a dedicated
-corosync link possible if NICs are ever added. **Known limitation, not a task.**
+Fine while everything is Tailscale-only; a problem the moment anything becomes
+LAN- or internet-reachable. The `apps` review named this as the one gap a
+reviewer would flag.
 
 ---
 
-## Security
+## Infrastructure
+
+### Second-tier SSD for Rhea and Hestia
+
+Both 2.5" bays are empty. **Lower priority now that `themis-500` exists** and has
+absorbed the scratch workload that was blocking qBittorrent.
+
+### Corosync shares one NIC per node
+
+Corosync is latency-sensitive and shares its NIC with guest and storage traffic;
+heavy NFS or backup traffic can make it flap. No fix today — one port per node.
+The CRS310's free SFP+ ports allow a dedicated link if NICs are ever added.
+
+### Proxmox HA vs Kubernetes
+
+Leaning **HA** — the workload is overwhelmingly single-instance stateful
+containers. But HA needs shared storage, making Tartarus a cluster SPOF, so
+off-box backup comes first. **ZFS replication between nodes is the lighter
+alternative** and is genuinely available now that ZFS is live everywhere.
+
+### VLAN rollout
+
+Deferred until the flat 2.5G network is proven — **not blocked**. Needs the
+CRS310 VLAN table and PVIDs, ER605 DHCP scopes and isolation rules, and the
+Omada controller to tag the guest/IoT SSIDs. Ordering and its traps:
+[network-core-crs310.md](./network-core-crs310.md#vlan-rollout--procedure).
+
+### OC200 RMA
+
+Outstanding, **not blocking VLANs**. Needed only for Omada AP management, which
+the software controller also covers — the hardware and software controllers are
+functionally identical.
+
+### 2.5G negotiation
+
+Only materialises where both ends support it. **The M720q is gigabit.** Check
+negotiated rates rather than assuming.
+
+---
+
+## Operational gaps
 
 ### Docker socket exposure
 
-Dozzle and Watchtower both mount `/var/run/docker.sock`, which is
-**root-equivalent**. Proposed: a socket-proxy in front of both, with read-only
-scopes.
+Dozzle is solved via **agent mode** — and note an agent *cannot* sit behind a
+socket-proxy, so agents are both the topology and the security answer.
+**what's-up-docker still wants a socket-proxy**, which is root-equivalent access
+until it gets one.
 
-### Watchtower auto-updates
+### No log persistence anywhere
 
-Auto-updating ~29 services invites breakage from upstream changes. Proposed:
-monitor-only mode (`WATCHTOWER_MONITOR_ONLY`), notify via ntfy, pull
-deliberately.
+Dozzle shows **live logs only**. Nothing retains logs after a container restarts.
 
-### No auth layer on internal tools
+### changedetection.io fails silently
 
-File Browser, Dozzle, and Homepage have no authentication. Fine while they are
-Tailscale-only; a problem the moment anything makes them LAN- or
-internet-reachable.
+**The thing that would alert you is the thing that stopped.** Put Uptime Kuma on
+watch-the-watcher duty. If changedetection graduates from trial to relied-upon,
+move it out of `sandbox` into `apps` or `monitor`.
 
----
+### Uptime Kuma needs an off-Hestia notification path
 
-## Network
+`monitor` lives on Hestia. A host-down event for Hestia is exactly the event it
+cannot report through itself.
 
-### VLAN rollout is deferred, not blocked
+### Home Assistant USB passthrough pins the VM
 
-**Unblocked** — the MikroTik does VLAN tagging itself, so the faulty OC200 is no
-longer in the way. Deferred **by choice**, until the flat 2.5G network is proven.
-
-Needs: VLAN table and PVIDs on the CRS310, DHCP scopes and isolation rules on the
-ER605, and the Omada software controller to tag the guest/IoT SSIDs on the
-EAP650. Procedure and ordering:
-[network-core-crs310.md](./network-core-crs310.md#vlan-rollout--procedure).
-
-### OC200 RMA outstanding
-
-No longer blocks VLANs. Needed only for Omada AP management, which the software
-controller also covers. `10.0.0.2` stays reserved for it.
+Zigbee passthrough pins the VM to one node → **no Proxmox HA for it**, and if
+that node dies, home automation dies with it. Either accept, or decouple with a
+networked Zigbee coordinator — placed where the mesh needs it, not where the
+rack is.
 
 ---
 
-## Miscellaneous
+## Deferred pending hardware or a decision
 
-- **Rhea RAM upgrade** (15.4 → 32 GiB) — deferred on cost. **Blocks nothing**;
-  see [DECISIONS.md](./DECISIONS.md) D14.
-- **Compose stubs** — Tracktor, ShipShipShip, and ListingLab still need
-  user-provided images.
+| Item | Blocked on |
+|---|---|
+| **Whisper AI subtitles** (Bazarr) | A GPU decision for Themis — its UHD 630 is not passed into `arr` |
+| **Local LLM** (Ollama / Open WebUI) | Same. UHD 630 gives no ML acceleration, so CPU-only inference. Reopen if a real GPU joins the lab |
+| **Rhea RAM 16 → 32 GB** | Cost only. Blocks nothing, and **known-good** — Hestia runs 32 GB on the identical board |
+| **Apprise notification fan-out** | Would serve ntfy, Speedtest Tracker and changedetection together |
+| **Compose stubs** — Tracktor, ShipShipShip, ListingLab | User-provided images |
+
+---
+
+## Housekeeping
+
+- **Check SMB and client bookmarks** still pointing at `tartarus.local` — the
+  TrueNAS domain changed to `.lan`.
+- **`atlas/sisyphus-migrator`** is not covered by the rev-7 service review. It is
+  a profile-gated one-shot rsync helper for the migration itself. Retire it once
+  the migration is done.
 
 ---
 
@@ -193,7 +184,16 @@ Kept briefly so they are not rediscovered as questions.
 
 | Was | Resolution |
 |---|---|
-| Rhea hung NFS mount / load ~1.0 | Not NFS. The `snd_hda_intel` audio timeout — fixed, see [hardware-inventory.md](./hardware-inventory.md#rhea--snd_hda_intel-must-stay-blacklisted) |
-| ZFS depends on Rhea's RAM upgrade | False. PVE caps ARC at 10% of RAM (max 16 GiB); Rhea runs ZFS fine at 15.4 GiB — D14 |
-| VLANs blocked on a working Omada controller | False. The MikroTik does VLANs — D15 |
-| SQLite/`/config` on NFS | Decided: configs on node-local ZFS, NFS for bulk data only — D11 |
+| Immich / Paperless not placed | Immich has a dedicated LXC; Paperless is in `apps` |
+| Full per-service keep/drop | Pass 1 complete — [service-architecture.md](./service-architecture.md) |
+| Grouping validation | Pass 2 complete; every grouping structurally validated |
+| Media / transcode placement | Media on Hestia; transcode to **tmpfs** |
+| qBittorrent blocked on a second SSD | Unblocked by the `themis-500` HDD pool |
+| Themis on a mechanical boot disk | Rebuilt onto NVMe — [rebuild-runbook.md](./rebuild-runbook.md) |
+| gluetun / VPN killswitch | Removed — [D17](./DECISIONS.md) |
+| Watchtower auto-update risk | Dropped for what's-up-docker, notify-only |
+| Rhea hung NFS mount / load ~1.0 | The `snd_hda_intel` audio timeout — [fixed](./hardware-inventory.md#rhea--snd_hda_intel-must-stay-blacklisted) |
+| ZFS depends on Rhea's RAM upgrade | False. ARC auto-caps at 10% of RAM |
+| VLANs blocked on a working Omada controller | False. The MikroTik does VLANs |
+| SQLite / `/config` on NFS | Decided: node-local ZFS only — [D11](./DECISIONS.md) |
+| Stack placement partly unassigned | Resolved by the 11-LXC map |

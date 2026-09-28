@@ -15,6 +15,7 @@ The core storage model is:
 The most important reference documents are:
 
 - [Decision Log](./docs/DECISIONS.md) — locked decisions and their rationale
+- [Service Architecture](./docs/service-architecture.md) — the 11-LXC + VM map
 - [Open Questions](./docs/OPEN-QUESTIONS.md) — unratified items and known risks
 - [Hardware Inventory](./docs/hardware-inventory.md) — measured node specs
 - [Rebuild Runbook](./docs/rebuild-runbook.md) — the PVE 9 + `gaia` build
@@ -154,7 +155,18 @@ atomically. See [DECISIONS.md](./docs/DECISIONS.md) D11 and D12.
 
 ## Docker Stacks
 
-The repository currently defines seven top-level Docker stacks:
+> **`stacks/<name>/` is a service inventory, not a placement map.** The seven
+> directory names below predate the current architecture and are **no longer the
+> deployment unit**. `aeos`, `helios`, `atlas` and `hera` dissolve; `io`,
+> `asteria` and `apollo` survive as `grab`, `arr` and `media`. The real map —
+> 11 LXCs and a VM, grouped by failure domain — is
+> [service-architecture.md](./docs/service-architecture.md), which also carries
+> the inventory → grouping table.
+>
+> Several services listed there are decided but **not yet built**, so they have
+> no compose file here.
+
+The repository currently defines seven top-level Docker stack directories:
 
 - `io`: download and ingestion pipeline
 - `asteria`: media automation and Arr ecosystem
@@ -172,8 +184,6 @@ These stacks are defined under [`stacks/`](./stacks).
 
 Download and ingestion services.
 
-- [Gluetun](https://github.com/qdm12/gluetun): VPN container used to route
-  selected download traffic through a private tunnel
 - [qBittorrent](https://www.qbittorrent.org/): BitTorrent client for automated
   downloads
 - [SABnzbd](https://sabnzbd.org/): Usenet downloader

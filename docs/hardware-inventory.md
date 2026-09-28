@@ -3,7 +3,7 @@
 Measured state of the cluster. **Every sizing decision depends on this table**, so
 it lives in the repo rather than in a chat log.
 
-Last verified: **2026-09-26**. Update this file when hardware changes — a stale
+Last verified: **2026-09-27**. Update this file when hardware changes — a stale
 inventory is worse than none, because it gets trusted.
 
 Related: [DECISIONS.md](./DECISIONS.md) · [rebuild-runbook.md](./rebuild-runbook.md) ·
@@ -17,40 +17,39 @@ Cluster name: **`gaia`** — 3 nodes, expected votes 3, quorum 2, quorate.
 
 | | Rhea | Hestia | Themis |
 |---|---|---|---|
-| Machine | N5095 mini-PC | N5095 mini-PC | Lenovo ThinkCentre M720q |
-| CPU | 4× N5095 @ 2.0 GHz | 4× N5095 @ 2.0 GHz | i7-8700T, 6c/12t, up to 4.0 GHz |
-| RAM | **15.40 GiB** | 31.13 GiB | 31.21 GiB |
-| Boot disk | 500 GB NVMe | **1 TB** | 500 GB |
-| Usable pool | ~457 GiB | **~915 GiB** | ~446 GiB |
-| Second bay | **empty** (2.5" SATA) | **empty** (2.5" SATA) | **empty** (2.5" SATA) |
-| QuickSync | H.265 | H.265 | H.265 (UHD 630) |
+| Machine | **Beelink Mini S** | **Beelink Mini S** | Lenovo ThinkCentre M720q |
+| CPU | N5095, 4c | N5095, 4c | i7-8700T, 6c/12t |
+| RAM | **16 GB** (15.40 GiB) | 32 GB | 32 GB |
+| Boot disk | 500 GB NVMe | **1 TB NVMe** | **500 GB WD SN550 NVMe** (new) |
+| Scratch pool | — | — | **`themis-500`: 500 GB WD5000LPLX HDD** |
+| Second bay | empty (2.5" SATA) | empty (2.5" SATA) | now holds the old HDD |
+| iGPU | UHD, 16 EU (Jasper Lake) | UHD, 16 EU (Jasper Lake) | **UHD 630, 24 EU** |
 | IP | `10.0.0.10` | `10.0.0.12` | `10.0.0.11` |
 | PVE | 9.2.2 | 9.2.2 | 9.2.2 |
 | Filesystem | ZFS-on-root | ZFS-on-root | ZFS-on-root |
 
-### What this table corrects
+### What this table changes
 
-Earlier planning assumed a uniform upgrade that did not happen. Three corrections
-matter for placement and sizing:
-
-- **Not 1 TB everywhere.** Rhea and Themis are 500 GB; only Hestia is 1 TB.
-  **Hestia is the largest-disk node by 2×** — that, not exclusive transcode
-  ability, is its real advantage.
-- **No second drives exist.** All three 2.5" bays are **empty**. Second-tier
-  storage is a **purchase (3× 2.5" SATA SSD)**, not a re-use of existing disks.
-  Anything depending on a second local pool is blocked until then — including
-  bringing qBittorrent back onto the cluster.
-- **Rhea's old 54 GiB pool constraint is gone.** At 500 GB it is a peer on disk.
-  Its only remaining weakness is the **N5095 CPU**, which is why it hosts light
-  infrastructure by choice rather than by force.
+- **Rhea and Hestia are the SAME machine** — Beelink Mini S, N5095 — differing
+  only in RAM and disk. **Rhea is the light-infra node because of RAM and disk,
+  not CPU.** They are therefore **interchangeable**, which is real resilience:
+  either can take the other's role.
+- **32 GB works on the N5095 board.** Hestia proves it despite Intel's official
+  16 GB cap, so Rhea's upgrade is known-good rather than a gamble.
+- **No AV1 anywhere.** Jasper Lake (Gen 11) and UHD 630 (Gen 9.5) both predate
+  Intel AV1 decode, which arrives in Gen 12. All three do H.264 / HEVC / VP9.
+- **Themis has the strongest iGPU** (UHD 630, 24 EU) — and media still did **not**
+  move there. See [service-architecture.md](./service-architecture.md).
+- **Themis's scratch blocker is resolved** by the `themis-500` HDD pool. Rhea's
+  and Hestia's 2.5" bays are still empty.
 
 ### Deferred upgrades
 
 | Item | Status |
 |---|---|
-| Rhea RAM 15.4 → 32 GiB | Deferred on cost (single-SO-DIMM N5095 modules are expensive). **Blocks nothing** — see [DECISIONS.md](./DECISIONS.md) D14. |
-| Themis RAM → 64 GiB | Possible later; M720q takes 2× SO-DIMM. |
-| 3× 2.5" SATA SSD | **Purchase required.** Gates qBittorrent's return and VM-disk/scratch tiering. |
+| Rhea RAM 16 → 32 GB | Deferred on cost. **Blocks nothing**, and **known-good** — Hestia runs 32 GB on the identical board. See [DECISIONS.md](./DECISIONS.md) D14. |
+| Themis RAM → 64 GB | Possible later; M720q takes 2× SO-DIMM. |
+| 2.5" SATA SSD for Rhea / Hestia | Bays empty. **Lower priority** now that `themis-500` exists. |
 
 ---
 
@@ -86,9 +85,12 @@ Interfaces view rather than assuming.
 
 **The fourth machine (seedbox)** — same specs as the weakest node, deliberately
 **outside** the `gaia` cluster. Explicitly non-production: experiments and
-disposable workloads only, no snapshots, no backups. qBittorrent currently lives
-here as a workaround and stays until the SATA SSDs are purchased. Nothing
-critical belongs on it — see [DECISIONS.md](./DECISIONS.md) D8.
+disposable workloads only, no snapshots, no backups. Nothing critical belongs on
+it — see [DECISIONS.md](./DECISIONS.md) D8.
+
+qBittorrent is **no longer blocked** on it: the `themis-500` HDD pool gives the
+incomplete-downloads scratch it needed, so it moves into the `grab` LXC on
+Themis.
 
 ---
 
@@ -127,3 +129,22 @@ Load dropped to normal (0.24 / 0.27 / 0.11).
 **Why it is recorded here rather than treated as a footnote:** a permanent +1.00
 load baseline poisons every load-based alert in Uptime Kuma. Anyone tuning
 monitoring thresholds against an unfixed Rhea would calibrate around a bug.
+
+### Themis — `themis-500` scratch pool
+
+The old mechanical boot disk was wiped and recreated as a single-disk ZFS pool,
+`themis-500` (ashift 12, compress on), in the M720q's 2.5" SATA bay.
+
+> **The Proxmox storage ENTRY was deliberately REMOVED.** The ZFS plugin only
+> offers *Disk-image* and *Container* content types — both wrong here, and a
+> rootfs footgun: it invites guests to land their root disks on a mechanical
+> drive. The pool is used **directly**, via `zfs create` plus bind mounts.
+
+Purpose: **incomplete-downloads scratch.** Sequential writes, no SSD wear, and
+the data is disposable. See [DECISIONS.md](./DECISIONS.md) D21.
+
+Outstanding housekeeping on this pool:
+
+- Rename `themis-500/downloads` → `themis-500/incomplete`.
+- Destroy or document the orphaned `themis-500/transcode` dataset — **transcode
+  now goes to tmpfs**, not this pool.

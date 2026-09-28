@@ -308,20 +308,24 @@ ping `10.0.0.20`.
 
 ### 3.5 Deploy the stacks
 
-Placement per [DECISIONS.md](./DECISIONS.md) D13 — **not all on one node.**
+Placement per [service-architecture.md](./service-architecture.md) — **11 LXCs
+and a VM, not all on one node.**
 
 Order:
 
-1. **Rhea** — Uptime Kuma, ntfy (monitoring and notification first)
-2. **Themis** — `io` (Gluetun, Sabnzbd, JDownloader, MeTube), then `asteria`
-   (full Arr suite), then `helios`
-3. **Hestia** — `apollo`
-4. `aeos` and the `atlas` remainder — **node not yet assigned**, see
-   [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md#stack-placement-is-partly-unassigned)
+1. **Hestia — `monitor`** first (Uptime Kuma, Beszel, ntfy), so the rest of the
+   build is observable. Point its `resolv.conf` at `10.0.0.1`, **not** Pi-hole.
+2. **Themis — `arr`**, after Prowlarr's indexers are configured. Then `grab`,
+   then `sandbox`, then the Home Assistant VM.
+3. **Hestia — `media`**, but only after `/dev/dri` passthrough is verified with
+   `vainfo`. Then `apps`, then `immich`.
 
-> **qBittorrent is not part of this.** It stays on the seedbox until the 2.5"
-> SATA SSDs are purchased — its incomplete-downloads folder must not land on the
-> ZFS root pool.
+> **Mount before you wire.** The `sisyphus` bind-mount path string must be
+> identical in `arr` and `grab`, or hardlinks fail silently and imports double
+> disk usage. [DECISIONS.md](./DECISIONS.md) D21.
+
+> **Skip the VPN and Watchtower sections of any guide you follow.** Both were
+> removed deliberately — D17.
 
 Clone repo to `/opt/stacks/home-server`, copy `.env` from templates. Config
 volumes resolve to `/opt/appdata/<stack>/<service>` on node-local ZFS — **never**
@@ -334,7 +338,7 @@ Point at `http://*.lan:PORT` using [PLAN.md](../PLAN.md) port map.
 ### Verify Phase 3
 
 - [ ] All clients resolve `*.lan` via Pi-hole
-- [ ] qBittorrent traffic exits via Gluetun (IP check in container)
+- [ ] Hardlinks work: the `sisyphus` mount path string is identical in `arr` and `grab`
 - [ ] Radarr sees download path on shared NFS
 - [ ] Uptime Kuma green on gateway, tartarus, Pi-hole
 - [ ] Tailscale subnet routing works off-LAN
@@ -365,7 +369,7 @@ Optional same node: Channels-DVR, Audiobookshelf, Kavita, ROMm
 - LXC + bootstrap: `helios`
 - Secondary Pi-hole at `10.0.0.51` (Unbound forward to primary or sync blocklists).
   Note this is **availability, not clean failover** — see the
-  [open question](./OPEN-QUESTIONS.md#secondary-dns-is-not-real-failover).
+  [open question](./OPEN-QUESTIONS.md#dns-redundancy).
 
 HA networking: if IoT devices need mDNS, plan VLAN/firewall exception or put
 controller on IoT with Main access — document choice in `config/site.env`.

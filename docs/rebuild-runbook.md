@@ -1,7 +1,8 @@
 # Cluster Rebuild Runbook — PVE 9 + `gaia`
 
 Record of the from-scratch rebuild of the three Proxmox nodes, completed
-**2026-09-26**. Written as a runbook so it is repeatable, and so the decisions
+**2026-09-26**, plus the Themis NVMe rebuild and TrueNAS work completed
+**2026-09-27**. Written as a runbook so it is repeatable, and so the decisions
 and dead ends inside it are not re-litigated.
 
 **Framing: this was a rebuild, not a live migration.** Services and LXCs are
@@ -93,6 +94,61 @@ Yes**.
 
 ---
 
+## Themis NVMe rebuild — DONE (2026-09-27)
+
+Themis was rebuilt onto a new **WD SN550 NVMe** in its single M.2 slot. The
+M720q has **one M.2 plus one 2.5" SATA bay**, so the old mechanical disk moved to
+the SATA bay and became the `themis-500` scratch pool.
+
+### Sequence
+
+**1. Remove the node from the cluster BEFORE reinstalling.**
+
+```bash
+# from a surviving node
+pvecm delnode themis
+```
+
+> This drops `gaia` to 2/3 with **zero fault tolerance for the duration of the
+> window**. Do it deliberately, and rejoin promptly.
+
+**2. Clean-install PVE 9 over the prior Windows + Arch EFI.**
+
+> **Installer gotcha: both disks are pre-selected for the ZFS RAID0 root.**
+> Set Harddisk 1 (the HDD) to **"do not use"** so root lands on the NVMe alone.
+> Missing this stripes root across an NVMe and a mechanical disk.
+
+**3. Clear stale NVRAM boot entries** left by the old operating systems:
+
+```bash
+efibootmgr            # list
+efibootmgr -b <N> -B  # delete each stale entry
+```
+
+**4. Rejoin the cluster** via the GUI Join Information flow.
+
+Result: `gaia` whole again — 3 nodes, config version 5, Themis node ID 2,
+445.78 GiB `local-zfs`.
+
+**5. Recreate the old HDD as the `themis-500` pool** — see
+[hardware-inventory.md](./hardware-inventory.md#themis--themis-500-scratch-pool)
+for why its Proxmox storage entry is deliberately absent.
+
+---
+
+## TrueNAS — DONE (2026-09-27)
+
+- **Domain changed `local` → `lan`.** `.local` is reserved for mDNS; see
+  [DECISIONS.md](./DECISIONS.md) D2.
+- **`sisyphus` NFS export** scoped to `10.0.0.0/24`, **no maproot** — identity
+  comes from UID/GID 3004.
+- **`tantalus` dataset + NFS export** added, with **maproot root**.
+- **Proxmox storage `tantalus`** = ISO + CT template + Backup.
+  **Disk image is deliberately OFF** — no VM disks over NFS.
+- Verified: write test passed, CT template download succeeded.
+
+---
+
 ## Other gotchas worth keeping
 
 - **PVE 9 will not run containers with pre-2016 systemd** (CentOS 7 / Ubuntu
@@ -106,15 +162,56 @@ Yes**.
 
 ## Still to do
 
-1. **NFS mounts to Tartarus `10.0.0.20`** on all three nodes.
-2. **Rebuild the stacks** per the placement rule, using the local-appdata layout
-   from [DECISIONS.md](./DECISIONS.md) D11 — configs on node-local ZFS at
-   `/opt/appdata/<stack>/<service>`, NFS for bulk data only.
-3. **Stand up the infrastructure LXCs on Rhea** — Pi-hole + Unbound, Caddy,
-   Uptime Kuma, ntfy, Tailscale subnet router, Omada software controller.
-4. **Set up Restic** per D12: per-node agents, ZFS-snapshot quiesce, shared
-   deduplicated repo on Tartarus, ntfy notification, and a real restore test.
+These are **host-level tasks that run on the nodes**, not repo changes.
 
-Not in this phase, and blocked on hardware: bringing qBittorrent back onto the
-cluster. It needs the 2.5" SATA SSDs that do not exist yet — see
-[OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md).
+### 1. `themis-500` housekeeping
+
+```bash
+zfs rename themis-500/downloads themis-500/incomplete
+zfs list -r themis-500                    # confirm
+zfs destroy themis-500/transcode          # orphaned — transcode is tmpfs now
+```
+
+### 2. Host NFS mounts for `sisyphus`, on every node
+
+`/etc/fstab` on Rhea, Hestia and Themis, then bind-mount into each LXC.
+
+> **The bind-mount path string must be IDENTICAL in `arr` and `grab`**, or
+> hardlinks fail and imports silently double disk usage.
+> [DECISIONS.md](./DECISIONS.md) D21. **Mount first, then wire.**
+
+```text
+10.0.0.20:/mnt/tartarus/sisyphus  /mnt/lxc_shares/sisyphus  nfs  defaults,_netdev  0 0
+```
+
+### 3. `/dev/dri` passthrough for `media` — the next hands-on task
+
+Host has `renderD128` (226:128) and `getent group render` → GID 993. **The
+container's GID differs and must be read separately.**
+
+```bash
+# push the CT template to tantalus first, then:
+pct create 200 --features nesting=1,keyctl=1 --unprivileged 1 --swap 0
+pct exec 200 -- getent group render          # read the CONTAINER's gid
+pct set 200 -dev0 /dev/dri/renderD128,gid=<container-gid>,mode=0660
+```
+
+> **`renderD128` only — never `card1`.** Verify with `vainfo` **before**
+> installing Docker; debugging passthrough through a Docker layer is much harder.
+
+The resulting GID goes into `RENDER_GID` in the media stack's `.env`.
+
+### 4. Build the service layer
+
+Per [service-architecture.md](./service-architecture.md) — 11 LXCs + 1 VM. Note
+that many services in that map **do not have compose files in this repo yet**;
+the map records the decision, not the implementation.
+
+### 5. Restic
+
+Per [DECISIONS.md](./DECISIONS.md) D12: per-node agents, ZFS-snapshot quiesce,
+shared deduplicated repo on Tartarus, ntfy notification, and a **real restore
+test**.
+
+> The **off-box copy** gates Reclaimerr's scheduled deletion (D23). Until it
+> exists, Reclaimerr runs report-only.

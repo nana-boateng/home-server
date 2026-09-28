@@ -4,6 +4,12 @@ This note captures the recommended direction for the current homelab design,
 based on the existing 3-node Proxmox cluster and the storage lessons learned
 from the TrueNAS/NFS/LXC permission model.
 
+> **Service placement now lives in
+> [service-architecture.md](./service-architecture.md)** — the 11-LXC + VM map,
+> grouped by failure domain, with per-service build notes. This document keeps
+> the node roles and the storage/identity model; where the two overlap, the
+> service architecture is authoritative.
+
 Locked decisions live in [DECISIONS.md](./DECISIONS.md); addressing, DNS, and
 proxy design live in [homelab-network-plan.md](./homelab-network-plan.md).
 Unratified items are collected in [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md).
@@ -41,25 +47,25 @@ Why:
 - H.265 QuickSync for playback.
 - Media locality: serving from the node that holds the library.
 
-Recommended services:
+Recommended LXCs:
 
-- `apollo`: Plex, Jellyfin, Tautulli, Maintainerr, Posterizarr
-- Channels-DVR
-- Audiobookshelf
-- Booklore
-- Kavita
-- Meelo
-- ROMm
+- `media` — Plex, Jellyfin, Tautulli, Posterizarr, Aggregarr, Navidrome
+  (**`/dev/dri` passthrough**, transcode scratch on **tmpfs**)
+- `monitor` — Uptime Kuma, Beszel, ntfy, what's-up-docker, Dozzle
+- `apps` — the utility layer, including Paperless-ngx and Stirling-PDF
+- `immich` — dedicated LXC: server, ML, Postgres, Valkey
 
 Suggestion:
 
 - Keep playback services here for now.
 - Avoid moving the downloader stack onto this node.
 
-> **Do not hard-code "Hestia is the only transcode node."** Themis also does
-> H.265 and is the faster CPU. Plex and Jellyfin sit here **by choice** (disk
-> locality), not by hardware limit, and the call is
-> [explicitly reopened](./OPEN-QUESTIONS.md#transcode--media-placement-is-reopened).
+> **Media stays here even though Themis has the stronger iGPU** (UHD 630, 24 EU
+> vs 16 EU). It keeps load on the idle node, and Hestia's blast radius now
+> includes other people. Decided, not deferred.
+
+> **No AV1 on any node** — Jasper Lake and UHD 630 both predate Intel's Gen-12
+> AV1 decode. H.264 / HEVC / VP9 only.
 
 ### Rhea
 
@@ -67,29 +73,31 @@ Role: **light always-on infrastructure node**
 
 Why:
 
-- Weakest CPU in the cluster (N5095), so it should not carry heavy stacks.
-- Light infrastructure LXCs have tiny configs and negligible CPU demand — the
-  one thing an N5095 is genuinely fine at.
-- Its old 54 GiB pool constraint is **gone**; at ~457 GiB it is a peer on disk.
+- **RAM and disk**, not CPU: 16 GB and 500 GB against Hestia's 32 GB and 1 TB.
+- Rhea and Hestia are the **same Beelink Mini S board**, so they are
+  interchangeable — either can take the other's role if one fails.
+- Light infrastructure has tiny configs and negligible CPU demand.
 
-Recommended services — small LXCs only:
+Recommended services — native-daemon LXCs only, no Docker:
 
-- Pi-hole + Unbound
-- Caddy
-- Uptime Kuma
-- ntfy
-- Omada software controller
-- Tailscale subnet router
+- `dns` — Pi-hole + Unbound
+- `proxy` — Caddy
+- `tailscale` — subnet router
+- `omada` — parked pending the OC200 RMA
+
+Monitoring moved **off** Rhea to Hestia, so it can still alert when Rhea is
+down.
 
 > **Do NOT put the heavy ~29-service control plane here.** The `io` and
 > `asteria` stacks belong on Themis. This reverses earlier guidance that routed
 > infrastructure *away* from Rhea — see [DECISIONS.md](./DECISIONS.md) D13 for
 > why both of that decision's premises expired.
 
-Caveat to accept knowingly: Uptime Kuma and ntfy now share a failure domain with
-DNS and the proxy, so if Rhea dies the alerting dies silently with it. That is
-the cost of the placement, tracked in
-[OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md#rhea-is-a-single-point-of-failure-for-its-own-monitoring).
+Monitoring deliberately does **not** live here — Uptime Kuma, Beszel and ntfy
+are in Hestia's `monitor` LXC, whose `resolv.conf` points at `10.0.0.1` rather
+than Pi-hole, so alerting survives Rhea going down. Kuma still needs an
+[off-Hestia notification path](./OPEN-QUESTIONS.md#uptime-kuma-needs-an-off-hestia-notification-path)
+for host-down events about its own node.
 
 ### Themis
 
@@ -97,20 +105,21 @@ Role: **compute / appliance host + the heavy stacks**
 
 Why:
 
-- Strongest node by a wide margin: i7-8700T, 6c/12t, up to 4.0 GHz.
-- H.265 QuickSync (UHD 630) — Immich ML is now GPU-accelerated here.
+- Strongest node by a wide margin: i7-8700T, 6c/12t.
+- NVMe boot plus the `themis-500` HDD scratch pool.
 - The right home for anything CPU-bound.
 
-Recommended services:
+Note its **UHD 630 is not passed into `arr`**, which is why Bazarr's Whisper
+subtitle generation is deferred.
 
-- `io`: Sabnzbd, JDownloader, MeTube (qBittorrent is **blocked** — see below)
-- `asteria`: Prowlarr, Sonarr, Radarr, Lidarr, Bazarr, related Arr tools
-- Home Assistant OS VM
-- Immich
-- Paperless-ngx
-- `helios`: Logseq, Stirling-PDF, Mealie, Grocy
-- MySpeed
-- OpenGist
+Recommended LXCs:
+
+- `arr` — Prowlarr, Radarr, Sonarr, Bazarr, Byparr, **SABnzbd**, abs-arr,
+  Audiobookshelf, Reclaimerr, Recyclarr — treated as **one system**
+- `grab` — qBittorrent, JDownloader, MeTube — a convenience bucket, not a
+  coupled system
+- `sandbox` — staged by **trust level**: changedetection, comet-editor, Grocy
+- `homeassistant` — **a VM, not an LXC**
 
 Suggestion:
 
@@ -119,61 +128,56 @@ Suggestion:
 - Immich benefits from the QuickSync GPU here — the old "Immich is on the wrong
   node for its GPU" problem is solved.
 
-> **Themis's limit is disk, not CPU:** ~446 GiB usable, tied with Rhea for
-> smallest. Watch capacity as the heavy stacks land.
+> **Themis's limit is disk, not CPU:** ~446 GiB NVMe. The `themis-500` HDD pool
+> adds disposable scratch, not capacity.
 
-> **qBittorrent is not deployed here yet.** Sizing is settled but it needs an
-> incomplete-downloads folder on a second local SSD that does not exist. It
-> stays on the seedbox until the SATA SSDs are purchased — see
-> [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md#qbittorrent-stays-on-the-seedbox).
+**qBittorrent now lives here**, in `grab`, with incomplete downloads on
+`themis-500/incomplete`. The HDD is the point — sequential writes, no SSD wear,
+disposable data. **Do not put incomplete downloads on the NVMe.**
+
+**SABnzbd lives with `arr`, not `grab`** — Usenet is primary and reliable, so
+they go up or down together, insulated from qBittorrent.
 
 ## Recommended Service Placement
 
 ```text
-Rhea — light infrastructure LXCs, outside Docker
-- Pi-hole + Unbound
-- Caddy
-- Uptime Kuma
-- ntfy
-- Omada software controller
-- Tailscale subnet router
+Rhea — native-daemon LXCs, no Docker
+- dns        Pi-hole + Unbound
+- proxy      Caddy (custom build w/ Cloudflare DNS plugin)
+- tailscale  subnet router
+- omada      parked pending OC200 RMA
 
-Hestia — media / storage hub (1 TB)
-- Apollo: Plex, Jellyfin, Tautulli, Maintainerr, Posterizarr
-- Audiobookshelf
-- Kavita
-- Booklore
-- Meelo
-- ROMm
-- Channels-DVR
+Hestia — media, monitoring, apps, photos
+- media      plex jellyfin tautulli posterizarr aggregarr navidrome   [/dev/dri]
+- monitor    uptime-kuma beszel ntfy whats-up-docker dozzle
+- apps       homepage jellyseerr wizarr speedtest nextexplorer pairdrop
+             tandoor kitchenowl opengist immich-drop immich-public-proxy
+             paperless-ngx stirling-pdf
+- immich     server machine-learning postgres valkey
 
-Themis — compute / appliance + heavy stacks (6c/12t)
-- Io: Sabnzbd, JDownloader, MeTube        (qBittorrent blocked on hardware)
-- Asteria: Prowlarr, Sonarr, Radarr, Lidarr, Bazarr, Recyclarr
-- Home Assistant OS VM
-- Immich
-- Paperless-ngx
-- Helios: Logseq, Stirling-PDF, Mealie, Grocy
-- MySpeed
-- OpenGist
-
-Not yet assigned
-- Aeos: Homepage, Jellyseerr, Wizarr, Speedtest, ChangeDetection, File Browser
-- Atlas remainder: Dozzle, Watchtower
+Themis — heavy compute
+- arr        prowlarr radarr sonarr bazarr byparr sabnzbd abs-arr
+             audiobookshelf reclaimerr recyclarr
+- grab       qbittorrent jdownloader metube
+- sandbox    changedetection comet-editor grocy
+- homeassistant   (VM, not LXC)
 
 Seedbox — outside the cluster, non-production
-- qBittorrent (until the SATA SSDs are purchased)
+- experiments only
 ```
+
+Full detail, including which of these are decided-but-unbuilt:
+[service-architecture.md](./service-architecture.md).
 
 Notes:
 
-- **Tautulli lives on Hestia**, in the `apollo` stack with the other
-  Plex-adjacent services. Earlier notes placing it on Rhea in `aeos` were wrong.
-- **`aeos` and the rest of `atlas` have no assigned node.** Assign them
-  deliberately rather than letting the first deploy decide — tracked in
-  [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md#stack-placement-is-partly-unassigned).
+- **Tautulli lives on Hestia**, in `media` with the other Plex-adjacent
+  services. Earlier notes placing it on Rhea in `aeos` were wrong.
+- **One Docker daemon per coupling group, each in its own LXC.** Splitting
+  compose files on a single daemon buys nothing — the daemon is the shared-fate
+  unit.
 - Caddy and Pi-hole are **not** applications and do not belong in a Compose
-  stack — see [DECISIONS.md](./DECISIONS.md) D3, D4, and D13.
+  stack — see [DECISIONS.md](./DECISIONS.md) D3, D4, D13, D22.
 
 ## Storage Layout
 
@@ -316,7 +320,7 @@ Settled elsewhere:
 - **VLAN-ready addressing**: future VLANs use the third octet under a
   `10.0.0.0/16` supernet, so Main never re-IPs. See D10.
 - Whether a **secondary Pi-hole** is real redundancy is
-  [still open](./OPEN-QUESTIONS.md#secondary-dns-is-not-real-failover) —
+  [still open](./OPEN-QUESTIONS.md#dns-redundancy) —
   clients query both resolvers rather than failing over cleanly.
 
 ## Backups

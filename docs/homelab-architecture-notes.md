@@ -320,7 +320,7 @@ Settled elsewhere:
 - **VLAN-ready addressing**: future VLANs use the third octet under a
   `10.0.0.0/16` supernet, so Main never re-IPs. See D10.
 - Whether a **secondary Pi-hole** is real redundancy is
-  [still open](./OPEN-QUESTIONS.md#dns-redundancy) —
+  [still open](./OPEN-QUESTIONS.md#dns-redundancy--now-live-not-theoretical) —
   clients query both resolvers rather than failing over cleanly.
 
 ## Backups

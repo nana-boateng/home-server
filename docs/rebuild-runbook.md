@@ -162,50 +162,51 @@ for why its Proxmox storage entry is deliberately absent.
 
 ## Still to do
 
-These are **host-level tasks that run on the nodes**, not repo changes.
+Items 1–3 of the previous list are **done** — see
+[build-record.md](./build-record.md) for the `themis-500` cleanup, the
+`/mnt/sisyphus` host mounts, and the verified `/dev/dri` passthrough.
 
-### 1. `themis-500` housekeeping
+### 1. Finish the two built LXCs
 
-```bash
-zfs rename themis-500/downloads themis-500/incomplete
-zfs list -r themis-500                    # confirm
-zfs destroy themis-500/transcode          # orphaned — transcode is tmpfs now
-```
+- **Point `media` at the live resolver:** `pct set 200 --nameserver 10.0.0.31`,
+  then restart. It was built before `dns` existed.
+- **Enable hardware transcoding inside Plex and Jellyfin** — it is off by
+  default, so the verified passthrough does nothing until switched on. Confirm
+  with a forced transcode; **Tautulli shows the decision.**
+- **Add local `.lan` records in Pi-hole** so split-horizon actually resolves.
 
-### 2. Host NFS mounts for `sisyphus`, on every node
+### 2. Build `monitor` on Hestia — the natural next LXC
 
-`/etc/fstab` on Rhea, Hestia and Themis, then bind-mount into each LXC.
+Same node as `media`, and Kuma watching the media stack pays off immediately.
 
-> **The bind-mount path string must be IDENTICAL in `arr` and `grab`**, or
-> hardlinks fail and imports silently double disk usage.
-> [DECISIONS.md](./DECISIONS.md) D21. **Mount first, then wire.**
+> **Set its resolver to `10.0.0.1`, not Pi-hole:**
+> `pct set <id> --nameserver 10.0.0.1`, then restart. `dns` is live and the whole
+> network points at it, so a `monitor` resolving through Pi-hole would go blind
+> at exactly the moment Rhea died.
 
-```text
-10.0.0.20:/mnt/tartarus/sisyphus  /mnt/lxc_shares/sisyphus  nfs  defaults,_netdev  0 0
-```
-
-### 3. `/dev/dri` passthrough for `media` — the next hands-on task
-
-Host has `renderD128` (226:128) and `getent group render` → GID 993. **The
-container's GID differs and must be read separately.**
+### 3. Prepare Themis, then build `arr` and `grab`
 
 ```bash
-# push the CT template to tantalus first, then:
-pct create 200 --features nesting=1,keyctl=1 --unprivileged 1 --swap 0
-pct exec 200 -- getent group render          # read the CONTAINER's gid
-pct set 200 -dev0 /dev/dri/renderD128,gid=<container-gid>,mode=0660
+# on Themis — Hestia already has this, Themis does not
+echo 'root:3004:1' >> /etc/subuid
+echo 'root:3004:1' >> /etc/subgid
 ```
 
-> **`renderD128` only — never `card1`.** Verify with `vainfo` **before**
-> installing Docker; debugging passthrough through a Docker layer is much harder.
+Plus the six `lxc.idmap` lines in each container config —
+[build-gotchas.md](./build-gotchas.md#unprivileged-containers-need-an-idmap-to-use-the-nfs-share).
 
-The resulting GID goes into `RENDER_GID` in the media stack's `.env`.
+Then `arr` (Prowlarr's indexers first), then `grab`. **Chown
+`/themis-500/incomplete` to `3004:3004` as part of the `grab` build** — it is
+`root:root` today and qBittorrent runs as 3004.
 
-### 4. Build the service layer
+Also check **Themis's node search domain**; Rhea's was `an`, not `lan`.
 
-Per [service-architecture.md](./service-architecture.md) — 11 LXCs + 1 VM. Note
-that many services in that map **do not have compose files in this repo yet**;
-the map records the decision, not the implementation.
+### 4. Build the rest of the service layer
+
+Per [service-architecture.md](./service-architecture.md) — 9 LXCs and the VM
+remain. Many of those services **have no compose file in this repo yet**; the map
+records the decision, not the implementation. As each LXC is built, its real
+compose lands in `stacks/<lxc>/`.
 
 ### 5. Restic
 
@@ -213,5 +214,10 @@ Per [DECISIONS.md](./DECISIONS.md) D12: per-node agents, ZFS-snapshot quiesce,
 shared deduplicated repo on Tartarus, ntfy notification, and a **real restore
 test**.
 
-> The **off-box copy** gates Reclaimerr's scheduled deletion (D23). Until it
-> exists, Reclaimerr runs report-only.
+> The **off-box copy** gates Reclaimerr's scheduled deletion (D23).
+
+### 6. Verify NFS-before-container ordering
+
+On the next reboot of each node, confirm the bind mounts actually carry NFS
+content and not an empty local directory —
+[OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md#nfs-before-container-ordering-at-boot).

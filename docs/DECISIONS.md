@@ -402,7 +402,7 @@ unpredictably, or wait an age, or cache the primary and never try the backup —
 so a public secondary means queries leak past Pi-hole at random. Real redundancy
 needs a **second Pi-hole plus a Keepalived VRRP floating VIP**, with clients and
 DHCP pointing only at the VIP. That is
-[open, not built](./OPEN-QUESTIONS.md#dns-redundancy).
+[open, not built](./OPEN-QUESTIONS.md#dns-redundancy--now-live-not-theoretical).
 
 > **When the second Pi-hole exists: never update both at once.** A bad update
 > with both down means zero redundancy at exactly the wrong moment.
@@ -411,6 +411,10 @@ Extends [D2](#d2--search-domain-is-lan) and
 [D3](#d3--pi-hole-runs-as-a-proxmox-lxc-not-a-docker-container).
 
 ### D21 — The download flow is load-bearing
+
+> **The path string is `/mnt/sisyphus`** — fixed by
+> [D24](#d24--lxc-address-block-3059-with-statics-in-the-container-config) and
+> the live build. See [build-record.md](./build-record.md).
 
 Extends [D11](#d11--runtime-config-on-node-local-zfs-nfs-carries-bulk-data-only).
 Holds identically for Radarr, Sonarr and abs-arr:
@@ -490,3 +494,70 @@ exists would make a single misconfigured rule unrecoverable.
 
 This makes [off-box backup](./OPEN-QUESTIONS.md#nothing-lives-off-tartarus-yet)
 a gating dependency rather than a nice-to-have.
+
+---
+
+## 2026-10-01
+
+Context: the first two LXCs — `media` and `dns` — are **built, verified and in
+service**. See [build-record.md](./build-record.md) for what was built and
+[build-gotchas.md](./build-gotchas.md) for what it cost.
+
+### D24 — LXC address block `.30–.59`, with statics in the container config
+
+Guests take statics from **`.30–.59`**, set in the container config
+(`/etc/pve/lxc/<id>.conf`) — **not** as DHCP reservations on the router.
+
+Assigned: `media` **`10.0.0.30`**, `dns` **`10.0.0.31`**.
+
+**Rationale.** Services reach each other **by IP and port across LXC boundaries**
+([D22](#d22--service-layer-11-lxcs--1-vm-grouped-by-failure-domain)), so these
+addresses are referenced by Caddy, Homepage and others. That makes them
+configuration, and configuration belongs in the repo rather than in a router's
+web UI ([D9](#d9--this-repo-is-the-source-of-truth)). Putting them in the
+container config also means the address travels with the container definition
+and is captured by `vzdump`.
+
+Extends [D1](#d1--addressing-scheme-flat-1000024) and
+[D10](#d10--vlan-ready-addressing-under-a-1000016-supernet), which reserved
+`.30–.99` for services generally; `.30–.59` is the LXC/VM slice of that.
+
+### D25 — The shared NFS path string is `/mnt/sisyphus`, everywhere
+
+One string, identical on the host and inside **every** LXC:
+
+```
+10.0.0.20:/mnt/tartarus/sisyphus  ->  /mnt/sisyphus   (host, /etc/fstab)
+pct set <id> -mp0 /mnt/sisyphus,mp=/mnt/sisyphus       (guest, same string)
+```
+
+**Rationale.** [D21](#d21--the-download-flow-is-load-bearing) requires an
+identical path string in `grab` and `arr` or hardlinks fail silently and imports
+double disk usage. Fixing the string once, for every guest including those that
+do not need hardlinks, removes the chance of getting it wrong in the two that
+do.
+
+**Unprivileged containers need an idmap to use it at all.** The export is mode
+`drwx------` owned `3004:3004`, so only UID 3004 exactly can read it, and an
+unprivileged container maps 3004 → 103004 by default. The `root:3004:1`
+subuid/subgid entries plus six `lxc.idmap` lines are **mandatory, not optional**
+— the exact block is in
+[build-gotchas.md](./build-gotchas.md#unprivileged-containers-need-an-idmap-to-use-the-nfs-share).
+
+### D26 — Pin every image to a version actually pulled
+
+Image tags are pinned to versions **read off the image after pulling**, never
+copied from a guide or from memory.
+
+**Rationale.** Every image tag and install instruction assumed at the start of
+the `media`/`dns` build was stale — not some of them, all of them. The pinning
+discipline is cheap; the alternative is debugging a tag that never existed.
+
+```bash
+docker inspect -f '{{ index .Config.Labels "build_version" }}' <image>:latest
+```
+
+This extends to install procedures, not just tags: the documented Pi-hole
+`--unattended` flag does not work on a fresh system, and Docker's repo format is
+now deb822. Both are recorded in
+[build-gotchas.md](./build-gotchas.md).

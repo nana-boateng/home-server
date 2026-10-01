@@ -67,6 +67,17 @@ These are plain directories inside one dataset, not child ZFS datasets.
 > on **node-local ZFS**, never on NFS — see [DECISIONS.md](./DECISIONS.md) D11.
 > It is omitted rather than merely discouraged so the wrong path does not exist
 > to be used.
+>
+> **The live share now matches this.** A stale `appdata/` tree (403 MB across
+> `asteria`, `atlas` and `io`) and a stray `dev/` directory — a container `/dev`
+> skeleton written to NFS by a misdirected bind mount in Aug 2024 — were deleted.
+> `downloads/`, `media/` and `shared/` are all that remain.
+
+**The share is mounted at `/mnt/sisyphus`** on every host and inside every LXC —
+one identical path string, because hardlinks depend on it ([D25](./DECISIONS.md)).
+The export is mode `drwx------` owned `3004:3004`, so **unprivileged containers
+need an idmap** or they see nothing at all:
+[build-gotchas.md](./build-gotchas.md#unprivileged-containers-need-an-idmap-to-use-the-nfs-share).
 
 Recommended subdirectories for `ixion` are user-data specific. Keep them separate
 from container write paths.

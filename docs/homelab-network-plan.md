@@ -82,15 +82,19 @@ service runs on — HA migration would immediately make that encoding a lie.
 Assign from `.30–.99` by service, and let DNS and the reverse proxy hide the
 placement.
 
-Suggested (not yet assigned) grouping inside `.30–.99`:
+**LXC / VM block: `.30–.59`.** Guests take statics from the container config
+(`/etc/pve/lxc/<id>.conf`), **not** DHCP reservations — services reach each other
+by IP and port across LXC boundaries, so these addresses are referenced by Caddy,
+Homepage and others and belong in the repo rather than a router UI.
+See [DECISIONS.md](./DECISIONS.md) D24.
 
-| Range | Grouping |
-|-------|----------|
-| `.30–.49` | Media |
-| `.50–.69` | Infrastructure |
-| `.70–.99` | Everything else |
+| IP | LXC | Node | Status |
+|----|-----|------|--------|
+| `10.0.0.30` | `media` | Hestia | **Live** |
+| `10.0.0.31` | `dns` | Rhea | **Live** |
+| `.32–.59` | unassigned | | |
 
-Pi-hole primary at `.50` and secondary at `.51` fit the infrastructure band.
+`.60–.99` remains free for non-LXC services.
 
 ### Search domain
 
@@ -99,9 +103,21 @@ The search domain is **`.lan`**. All host and service names are `*.lan`.
 **`.local` must not be used anywhere.** It is reserved for mDNS (RFC 6762) and
 causes intermittent, hard-to-debug resolution failures on macOS and Linux.
 
-> **Action item (not a repo change).** The only live `.local` in the homelab is
-> the TrueNAS box's domain setting. Fix it on the TrueNAS console — the repo
-> itself has zero `.local` occurrences.
+TrueNAS's domain was changed `local` → `lan` on the box, so nothing in the
+homelab serves `.local` any more. Client-side SMB bookmarks pointing at
+`tartarus.local` may still need updating.
+
+> **Two traps when setting the search domain, both hit during the build:**
+>
+> - **The ER605 rejects a single-label DHCP Default Domain.** `lan` and `.lan`
+>   both fail validation, so the search domain **cannot be advertised via DHCP**
+>   on this router. The field was left blank; the options are per-client config
+>   or moving to a two-label name — a
+>   [deliberate decision, not an improvisation](./OPEN-QUESTIONS.md#er605-cannot-advertise-a-single-label-search-domain).
+> - **A node's search domain propagates to its guests only on restart.** Rhea's
+>   was found set to `an`, not `lan`, and every container it created inherited
+>   the typo. `pct set --searchdomain` does not rewrite a running guest.
+>   **Themis is still unchecked.**
 
 ### VLANs — third octet under a `10.0.0.0/16` supernet
 
@@ -128,7 +144,7 @@ deferred by the deliberate choice to prove the flat 2.5G network first. Rollout
 ordering and its two traps:
 [network-core-crs310.md](./network-core-crs310.md#vlan-rollout--procedure).
 
-All VLANs use Pi-hole (`10.0.0.50`) as DNS via DHCP — not ISP DNS.
+All VLANs use Pi-hole (`10.0.0.31`) as DNS via DHCP — not ISP DNS.
 
 ---
 
@@ -177,9 +193,17 @@ Rules:
 Placement: the `dns` LXC on **Rhea** — see
 [Infrastructure Placement](#infrastructure-placement) below.
 
-**All clients are forced through Pi-hole using CRS310 NAT rules**, and **no
-public resolver is listed as secondary DNS in DHCP** — clients leak to it
-unpredictably. See [DECISIONS.md](./DECISIONS.md) D20.
+**Live at `10.0.0.31`** since the rev-8 cutover; DHCP hands it to the whole
+network with **Secondary DNS deliberately empty** — a secondary is a bypass, not
+failover. Build detail: [build-record.md](./build-record.md).
+
+**Clients are to be forced through Pi-hole using CRS310 NAT rules** — those rules
+are **still unbuilt**, and their absence was demonstrated during the cutover when
+a Mac with a manual `1.1.1.1` bypassed Pi-hole entirely. See
+[DECISIONS.md](./DECISIONS.md) D20.
+
+> **DNS emergency rollback: set the ER605's Primary DNS back to `10.0.0.1`.**
+> The router answers regardless of Pi-hole's state.
 
 The Proxmox hosts themselves deliberately resolve via the router (`10.0.0.1`),
 **not** Pi-hole, so DNS recovery is not circular when the Pi-hole LXC is down.
@@ -288,7 +312,7 @@ router filters. See [DECISIONS.md](./DECISIONS.md) D15 for why routing is
 deliberately *not* offloaded to the switch.
 
 1. **Guest** (`10.0.30.0/24`) → RFC1918: deny; → WAN: allow
-2. **IoT** (`10.0.20.0/24`) → Main: deny (default); allow DNS to `10.0.0.50`; allow WAN
+2. **IoT** (`10.0.20.0/24`) → Main: deny (default); allow DNS to `10.0.0.31`; allow WAN
 3. **Main** (`10.0.0.0/24`) → IoT: allow (admin); → anywhere: allow
 
 NFS (`10.0.0.20`) is **not** exposed to IoT/Guest.
@@ -304,6 +328,10 @@ NFS (`10.0.0.20`) is **not** exposed to IoT/Guest.
 - **Public services**: Cloudflare Tunnel via Caddy — see
   [Reverse Proxy and External Access](#reverse-proxy-and-external-access).
 - **Optional**: Omada WireGuard for full-tunnel road warriors.
+
+**Tailscale MagicDNS coexists with Pi-hole.** It installs its own resolver entry
+on clients for `<tailnet>.ts.net` only; everything else falls through to Pi-hole.
+Expect to see it in `scutil --dns` output — that is not a conflict.
 
 Tailscale is the standard. **Headscale is not used.**
 

@@ -3,7 +3,7 @@
 Measured state of the cluster. **Every sizing decision depends on this table**, so
 it lives in the repo rather than in a chat log.
 
-Last verified: **2026-09-27**. Update this file when hardware changes — a stale
+Last verified: **2026-10-01**. Update this file when hardware changes — a stale
 inventory is worse than none, because it gets trusted.
 
 Related: [DECISIONS.md](./DECISIONS.md) · [rebuild-runbook.md](./rebuild-runbook.md) ·
@@ -38,6 +38,10 @@ Cluster name: **`gaia`** — 3 nodes, expected votes 3, quorum 2, quorate.
   16 GB cap, so Rhea's upgrade is known-good rather than a gamble.
 - **No AV1 anywhere.** Jasper Lake (Gen 11) and UHD 630 (Gen 9.5) both predate
   Intel AV1 decode, which arrives in Gen 12. All three do H.264 / HEVC / VP9.
+  **Confirmed empirically** by `vainfo` inside CT 200 — H.264 Main/High, HEVC
+  Main through Main444_10, VP9 profiles 0–3, VC1, MPEG2, JPEG, with both decode
+  (`VLD`) and encode (`EncSliceLP`) entrypoints, and no AV1 entry at all.
+  See [build-record.md](./build-record.md).
 - **Themis has the strongest iGPU** (UHD 630, 24 EU) — and media still did **not**
   move there. See [service-architecture.md](./service-architecture.md).
 - **Themis's scratch blocker is resolved** by the `themis-500` HDD pool. Rhea's
@@ -143,8 +147,10 @@ The old mechanical boot disk was wiped and recreated as a single-disk ZFS pool,
 Purpose: **incomplete-downloads scratch.** Sequential writes, no SSD wear, and
 the data is disposable. See [DECISIONS.md](./DECISIONS.md) D21.
 
-Outstanding housekeeping on this pool:
+**Housekeeping done:** `themis-500/downloads` renamed to
+`themis-500/incomplete`, and the orphaned `themis-500/transcode` destroyed —
+transcode goes to tmpfs, not this pool.
 
-- Rename `themis-500/downloads` → `themis-500/incomplete`.
-- Destroy or document the orphaned `themis-500/transcode` dataset — **transcode
-  now goes to tmpfs**, not this pool.
+> **`/themis-500/incomplete` is owned `root:root`.** qBittorrent runs as 3004 and
+> cannot write there yet. Fix it as part of the `grab` build, so the whole
+> download path gets verified at once.

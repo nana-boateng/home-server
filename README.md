@@ -16,6 +16,8 @@ The most important reference documents are:
 
 - [Decision Log](./docs/DECISIONS.md) — locked decisions and their rationale
 - [Service Architecture](./docs/service-architecture.md) — the 11-LXC + VM map
+- [Build Record](./docs/build-record.md) — what is live, and how it was verified
+- [Build Gotchas](./docs/build-gotchas.md) — **read before building any LXC**
 - [Open Questions](./docs/OPEN-QUESTIONS.md) — unratified items and known risks
 - [Hardware Inventory](./docs/hardware-inventory.md) — measured node specs
 - [Rebuild Runbook](./docs/rebuild-runbook.md) — the PVE 9 + `gaia` build
@@ -77,13 +79,16 @@ advantage — Themis does H.265 too, and faster.
 
 Intended workloads:
 
-- `apollo` stack: Plex, Jellyfin, Tautulli, Maintainerr, Posterizarr
+- `media` LXC — Plex, Jellyfin, Tautulli, Posterizarr, Navidrome (**built**)
+- `monitor`, `apps`, `immich` LXCs
 - Channels-DVR
-- Audiobookshelf
 - Booklore
 - Kavita
 - Meelo
 - ROMm
+
+Audiobookshelf is **not** here — it lives in `arr` on Themis, because abs-arr
+imports into it and the pair must share a daemon and filesystem for hardlinks.
 
 ### Themis — compute / appliances + heavy stacks
 

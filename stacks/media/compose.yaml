@@ -1,0 +1,109 @@
+# media — CT 200 on Hestia, 10.0.0.30
+#
+# This file mirrors the LIVE build at /opt/stacks/media/compose.yaml.
+# Build record and verification commands: docs/build-record.md
+#
+# Image tags are pinned to versions actually pulled and verified on 2026-09-28.
+# Read a version off the image before changing a pin — never copy one from a
+# guide. See docs/build-gotchas.md.
+#
+# PUID/PGID are 3004 (sisyphus) because the NFS share is mode drwx------ and
+# only UID 3004 exactly can read it. The LXC idmap makes that work inside an
+# unprivileged container.
+
+services:
+  plex:
+    image: lscr.io/linuxserver/plex:1.43.4
+    container_name: plex
+    # host networking for local discovery and native remote access (D18).
+    # Deliberately no ports: block — Plex is on 10.0.0.30:32400.
+    network_mode: host
+    environment:
+      - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - VERSION=docker
+      - PLEX_CLAIM=${PLEX_CLAIM}
+    # QuickSync. renderD128 only — never card0/card1.
+    # RENDER_GID is the CONTAINER's render gid (992 on Hestia), not the host's
+    # (993). Read it with: pct exec <id> -- getent group render
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    group_add:
+      - "${RENDER_GID}"
+    volumes:
+      - ${APPDATA_DIR}/media/plex:/config
+      - ${STORAGE_DIR}:/data
+    # Transcode scratch in RAM. Declared here, at the Docker level, because
+    # lxc.mount.entry tmpfs into an idmapped unprivileged container fails
+    # silently (docs/build-gotchas.md). Keep the cap under the LXC's 8 GB.
+    tmpfs:
+      - /transcode:rw,size=4g,uid=3004,gid=3004
+    restart: unless-stopped
+
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:12.1ubu2604-ls50
+    container_name: jellyfin
+    environment:
+      - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=${PGID}
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    group_add:
+      - "${RENDER_GID}"
+    ports:
+      - '8096:8096'
+      - '8920:8920'
+    volumes:
+      - ${APPDATA_DIR}/media/jellyfin:/config
+      - ${STORAGE_DIR}:/data
+    tmpfs:
+      - /transcode:rw,size=4g,uid=3004,gid=3004
+    restart: unless-stopped
+
+  tautulli:
+    image: lscr.io/linuxserver/tautulli:v2.18.2-ls245
+    container_name: tautulli
+    environment:
+      - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=${PGID}
+    ports:
+      - '8181:8181'
+    volumes:
+      - ${APPDATA_DIR}/media/tautulli:/config
+    restart: unless-stopped
+
+  navidrome:
+    image: deluan/navidrome:0.64.2
+    container_name: navidrome
+    user: "${PUID}:${PGID}"
+    environment:
+      - ND_LOGLEVEL=info
+      - ND_MUSICFOLDER=/music
+      - ND_DATAFOLDER=/data
+    ports:
+      - '4533:4533'
+    volumes:
+      - ${APPDATA_DIR}/media/navidrome:/data
+      # Navidrome serves; it does not acquire. Library is read-only.
+      - ${STORAGE_DIR}/media/audio/music:/music:ro
+    restart: unless-stopped
+
+  posterizarr:
+    image: ghcr.io/fscorrupt/posterizarr:3.3.6
+    container_name: posterizarr
+    environment:
+      - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=${PGID}
+    ports:
+      - '8000:8000'
+    volumes:
+      - ${APPDATA_DIR}/media/posterizarr:/config
+      - ${STORAGE_DIR}:/data
+    restart: unless-stopped
+
+  # aggregarr — decided (Plex-only) but NOT YET BUILT. Not in the live compose.
+  # Add when wanted; see docs/service-architecture.md.

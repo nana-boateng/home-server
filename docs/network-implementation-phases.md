@@ -360,7 +360,8 @@ Point at `http://*.lan:PORT` using [PLAN.md](../PLAN.md) port map.
 - Static `10.0.0.12`, DNS `hestia.lan`, `plex.lan` → hestia
 - Connect Jellyseerr (on Rhea) to Plex/Jellyfin URLs
 
-Optional same node: Channels-DVR, Audiobookshelf, Kavita, ROMm
+Optional same node: Channels-DVR, Kavita, ROMm. **Not** Audiobookshelf — it
+belongs in `arr` on Themis, beside abs-arr which imports into it.
 
 ### 4.2 Themis
 
@@ -369,7 +370,7 @@ Optional same node: Channels-DVR, Audiobookshelf, Kavita, ROMm
 - LXC + bootstrap: `helios`
 - Secondary Pi-hole at `10.0.0.51` (Unbound forward to primary or sync blocklists).
   Note this is **availability, not clean failover** — see the
-  [open question](./OPEN-QUESTIONS.md#dns-redundancy).
+  [open question](./OPEN-QUESTIONS.md#dns-redundancy--now-live-not-theoretical).
 
 HA networking: if IoT devices need mDNS, plan VLAN/firewall exception or put
 controller on IoT with Main access — document choice in `config/site.env`.

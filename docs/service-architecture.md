@@ -10,6 +10,11 @@ shape below is deliberate rather than inherited.
 Related: [DECISIONS.md](./DECISIONS.md) · [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md) ·
 [hardware-inventory.md](./hardware-inventory.md)
 
+> **Build status: 2 of 11 LXCs live.** `media` (CT 200, Hestia, `10.0.0.30`) and
+> `dns` (CT 100, Rhea, `10.0.0.31`) are built and in service. What was built and
+> how it was verified: [build-record.md](./build-record.md). **Read
+> [build-gotchas.md](./build-gotchas.md) before building the next one.**
+
 ---
 
 ## The principle: blast radius, spent only where it pays
@@ -56,7 +61,7 @@ Lean-infra-concentrated-on-one-node is the endorsed 2026 pattern. All four are
 
 | LXC | Service | RAM | Notes |
 |---|---|---|---|
-| `dns` | Pi-hole + Unbound | ~512 MB | **Locked.** Technitium rejected. |
+| `dns` | Pi-hole + Unbound | ~512 MB | **BUILT** — CT 100, `10.0.0.31`. Technitium rejected |
 | `proxy` | Caddy | ~512 MB | Needs a **custom build** carrying the Cloudflare DNS plugin |
 | `tailscale` | Tailscale | ~256 MB | Subnet router advertising `10.0.0.0/24`, free plan |
 | `omada` | Omada controller | ~2 GB | **Parked** pending the OC200 RMA |
@@ -76,7 +81,7 @@ the OC200 RMA is not urgent.
 > **The SPOF is DNS specifically.** Proxy and Tailscale failing is annoying and
 > recoverable; DNS failing takes the whole network with it. Redundancy plan —
 > a second Pi-hole plus a Keepalived VRRP floating VIP — is
-> [open, not built](./OPEN-QUESTIONS.md#dns-redundancy).
+> [open, not built](./OPEN-QUESTIONS.md#dns-redundancy--now-live-not-theoretical).
 
 ---
 
@@ -84,13 +89,18 @@ the OC200 RMA is not urgent.
 
 ### `media` (Docker) ~8 GB — **`/dev/dri` passthrough**, transcode → **tmpfs**
 
+> **BUILT** — CT 200, `10.0.0.30`. Hardware encode *and* decode verified with
+> `vainfo`. Live compose mirrored at
+> [`stacks/media/compose.yaml`](../stacks/media/compose.yaml); build record and
+> remaining in-app steps in [build-record.md](./build-record.md).
+
 | Service | Notes |
 |---|---|
 | plex | Lifetime Plex Pass → hardware transcoding. Keeps **native remote access, unproxied** |
 | jellyfin | QuickSync handles multiple sessions across containers |
 | tautulli | Plex activity |
 | posterizarr | Needs TMDB at minimum, plus Fanart.tv / TVDB keys. Owns artwork. Run big jobs off-hours |
-| aggregarr | Plex-only |
+| aggregarr | Plex-only. **Decided but not built** — not in the live compose |
 | **navidrome** | Music serving. Single Go binary, <50 MB RAM. Subsonic API unlocks polished third-party mobile clients |
 
 Grouping validated: **Plex + Jellyfin against one library on one iGPU is
@@ -107,10 +117,17 @@ node-local plus Restic.
 > **Media stays on Hestia despite Themis having the stronger iGPU.** It keeps
 > load on the idle node, and Hestia's blast radius now includes other people.
 
-### `monitor` (Docker) ~2 GB
+### `monitor` (Docker) ~2 GB — **the natural next build**
+
+Same node as `media`, and Kuma watching the media stack pays off immediately.
 
 > **`resolv.conf` here points at `10.0.0.1` / `1.1.1.1`, NOT Pi-hole**, so
 > monitoring can still alert when Rhea is down.
+>
+> **This exception now matters in practice.** `dns` is live and the whole network
+> points at it, so a `monitor` that resolved through Pi-hole would go blind at
+> exactly the moment Rhea died. In an LXC:
+> `pct set <id> --nameserver 10.0.0.1`, then restart.
 
 | Service | Job |
 |---|---|
@@ -217,7 +234,7 @@ Bazarr and the media servers only ever need the media path, never downloads.
 | byparr | Drop-in FlareSolverr replacement — same API, same port 8191. **Still add it in Prowlarr as a "FlareSolverr" proxy type.** Heaviest thing in the LXC while solving. Solvearr is the lightweight fallback |
 | sabnzbd | Requires a paid Usenet provider |
 | abs-arr | Own project, private ghcr image. Port 8788 |
-| audiobookshelf | Used daily |
+| audiobookshelf | Used daily. **Lives here, not in `media`** — see below |
 | reclaimerr | **The only tool in the stack that permanently deletes media** |
 | **recyclarr** | Syncs TRaSH Guides quality profiles and custom formats into Radarr and Sonarr |
 
@@ -232,8 +249,17 @@ living in the same LXC as the arrs is what makes paths line up:
 **abs-arr:** create a PAT with `read:packages` and run `docker login ghcr.io` on
 Themis **before** bringing up the compose. Pin your own tested tag.
 
-**audiobookshelf:** library on `sisyphus/media`; `/config` and `/metadata`
-node-local plus Restic — they hold listening bookmarks.
+**audiobookshelf lives in `arr` on Themis, not in `media` on Hestia.** An
+earlier service map placed it with the media servers; that was wrong. **abs-arr
+imports into it**, so the pair must share a daemon and a filesystem for
+hardlinks to work ([D21](./DECISIONS.md)). The live `media` build correctly
+omits it.
+
+Library path is **`/mnt/sisyphus/media/audio/audiobooks`**. A top-level
+`media/audiobooks/` directory also existed, was empty, and was deleted.
+
+`/config` and `/metadata` are node-local plus Restic — they hold listening
+bookmarks.
 
 > **reclaimerr: build it, configure it, and run DRY-RUN / REPORT-ONLY ONLY.**
 > Scheduled deletion stays **OFF** until a genuine off-box backup exists.
@@ -367,7 +393,7 @@ and `apollo` survive as `grab`, `arr` and `media`.
 | LXC / VM | Node | From `stacks/` | Not yet in the repo |
 |---|---|---|---|
 | `dns`, `proxy`, `tailscale`, `omada` | Rhea | — (native, no compose) | all four |
-| `media` | Hestia | `apollo/*`, `asteria/aggregarr` | navidrome |
+| `media` | Hestia | **`media/` — the live compose** | aggregarr |
 | `monitor` | Hestia | `atlas/{uptime-kuma,dozzle}`, `hera/ntfy` | beszel, what's-up-docker |
 | `apps` | Hestia | `aeos/*`, `hera/pairdrop`, `helios/{opengist,stirling-pdf,tracktor,shipshipship,listinglab}`, `io/immich-drop` | nextexplorer, tandoor, kitchenowl, paperless-ngx, immich public proxy |
 | `immich` | Hestia | — | all four containers |
@@ -383,3 +409,8 @@ service. Retire it once the migration is done.
 Services in the **"not yet in the repo"** column are decided but unbuilt — their
 compose files do not exist yet. They are recorded here so the decision survives;
 adding them is build work, not documentation.
+
+**As each LXC is built, its real compose lands in `stacks/<lxc>/`** and the
+superseded inventory directory is removed. `media` is the first: `stacks/apollo/`
+is gone, replaced by [`stacks/media/compose.yaml`](../stacks/media/compose.yaml)
+mirroring what actually runs. The remaining directories are still inventory.

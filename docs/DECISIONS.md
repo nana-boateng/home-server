@@ -401,11 +401,14 @@ Clients are forced through Pi-hole using **CRS310 NAT rules**.
 unpredictably, or wait an age, or cache the primary and never try the backup —
 so a public secondary means queries leak past Pi-hole at random. Real redundancy
 needs a **second Pi-hole plus a Keepalived VRRP floating VIP**, with clients and
-DHCP pointing only at the VIP. That is
-[open, not built](./OPEN-QUESTIONS.md#dns-redundancy--now-live-not-theoretical).
+DHCP pointing only at the VIP.
 
-> **When the second Pi-hole exists: never update both at once.** A bad update
-> with both down means zero redundancy at exactly the wrong moment.
+> **Built in [D27](#d27--dns-redundancy-two-pi-holes-behind-a-keepalived-vip-primary-only-edits)
+> (2026-10-04).** DHCP now advertises the VIP `10.0.0.33`.
+
+> **Never update both Pi-holes at once.** A bad update with both down means zero
+> redundancy at exactly the wrong moment —
+> [update-discipline.md](./update-discipline.md).
 
 Extends [D2](#d2--search-domain-is-lan) and
 [D3](#d3--pi-hole-runs-as-a-proxmox-lxc-not-a-docker-container).
@@ -508,7 +511,21 @@ service**. See [build-record.md](./build-record.md) for what was built and
 Guests take statics from **`.30–.59`**, set in the container config
 (`/etc/pve/lxc/<id>.conf`) — **not** as DHCP reservations on the router.
 
-Assigned: `media` **`10.0.0.30`**, `dns` **`10.0.0.31`**.
+| Address | Host | What |
+|---|---|---|
+| `10.0.0.30` | Hestia | `media` (CT 200) |
+| `10.0.0.31` | Rhea | `dns` (CT 100) — Pi-hole **primary** |
+| `10.0.0.32` | Hestia | `dns2` (CT 201) — Pi-hole **replica** |
+| `10.0.0.33` | **floating** | **DNS VIP** (keepalived VRRP) — what DHCP advertises |
+| `10.0.0.34` | Hestia | `monitor` (CT 202) |
+| `.35–.59` | | unassigned |
+
+> **CT ID numbering is undefined**, and the current IDs grew by node (1xx Rhea,
+> 2xx Hestia) — which puts the DNS pair in different ranges (`dns` is 100,
+> `dns2` is 201) even though the pair is one logical unit deliberately split
+> across nodes. Not renumbered;
+> [recorded as open](./OPEN-QUESTIONS.md#ct-id-numbering-scheme) so the
+> remaining six LXCs do not compound it.
 
 **Rationale.** Services reach each other **by IP and port across LXC boundaries**
 ([D22](#d22--service-layer-11-lxcs--1-vm-grouped-by-failure-domain)), so these
@@ -561,3 +578,96 @@ This extends to install procedures, not just tags: the documented Pi-hole
 `--unattended` flag does not work on a fresh system, and Docker's repo format is
 now deb822. Both are recorded in
 [build-gotchas.md](./build-gotchas.md).
+
+---
+
+## 2026-10-04
+
+Context: **DNS redundancy is built and the monitoring layer is complete.** Five
+of eleven LXCs are live. The DNS single point of failure that was flagged urgent
+is **closed**. See [build-record.md](./build-record.md).
+
+### D27 — DNS redundancy: two Pi-holes behind a keepalived VIP, primary-only edits
+
+**Built, not planned.** Two Pi-holes, each with **its own local unbound**, behind
+a keepalived VRRP floating IP at **`10.0.0.33`**. DHCP advertises the VIP only.
+
+| | |
+|---|---|
+| `dns` — CT 100, Rhea, `10.0.0.31` | Pi-hole **primary** + unbound + nebula-sync |
+| `dns2` — CT 201, Hestia, `10.0.0.32` | Pi-hole **replica** + its own unbound |
+| `10.0.0.33` | the VIP clients actually use |
+
+**The replica is deliberately on Hestia, not Rhea.** That separation is the
+entire point — it refines [D13](#d13--infrastructure-runs-on-rhea-supersedes-d6),
+which otherwise puts infrastructure on Rhea.
+
+**The replica runs its own unbound and must never forward to Rhea's.** If it
+did, a Rhea failure would take the replica's upstream with it: the replica would
+hold the VIP and resolve nothing, which is worse than no redundancy because it
+looks healthy.
+
+**The health check moves the VIP on FTL death, not just container death** — a
+Pi-hole whose FTL has died is still pingable and still holds the IP.
+
+> **`10.0.0.31` is the ONLY Pi-hole you edit.** nebula-sync is **one-way**;
+> anything changed on the replica is overwritten at the next hourly sync.
+> Blocklists, local DNS records, allowlist entries, settings — all go in at the
+> primary.
+
+nebula-sync is the **Pi-hole v6** tool; Orbital Sync is v5-era, built around the
+old API and Teleporter workflow, with one repo archived March 2025. It is
+addressed at `10.0.0.31`, **not the VIP** — sync must push from the real primary,
+never from whoever happens to hold `.33`.
+
+**Preemption is left ON.** `nopreempt` was rejected: silently running on the
+replica for weeks is the worse failure, because every edit made there vanishes.
+The accepted cost is that an FTL restart on the primary briefly moves the VIP and
+moves it back.
+
+> **Never update both Pi-holes at once** — a bad update with both down means zero
+> redundancy. Replica first, confirm it answers, then the primary.
+> [update-discipline.md](./update-discipline.md).
+
+Configs: [`infra/dns/`](../infra/dns/). What remains unbuilt is the
+**CRS310 NAT-rule half** of [D20](#d20--force-all-dns-through-pi-hole-never-list-a-public-resolver-as-secondary),
+whose absence was demonstrated during the first cutover when a Mac with a manual
+`1.1.1.1` bypassed Pi-hole entirely.
+
+### D28 — Nothing auto-updates, and three pairs are version-coupled
+
+Extends the Watchtower decision in
+[D22](#d22--service-layer-11-lxcs--1-vm-grouped-by-failure-domain). **The rule
+now explicitly covers agent auto-updaters, not just container images.**
+
+Three pairs must be version-matched or upgraded in a set order:
+
+| Pair | Rule |
+|---|---|
+| **Beszel hub + agents** (`0.20.0` × 4) | Not independently upgradable. Upgrade all four together. **Decline the installer's daily auto-update offer.** |
+| **Dozzle server + agent** (`v11.1.3`) | Must match. Every future stack adds another agent to keep in step |
+| **The two Pi-holes** | **Never both at once.** Replica first, confirm, then primary |
+
+**Rationale.** Beszel agents silently drifting ahead of the hub breaks
+monitoring — and the thing that would tell you is the thing that stopped. That
+failure mode is the whole argument against auto-update in a monitoring stack: it
+is self-concealing.
+
+Full procedure: [update-discipline.md](./update-discipline.md).
+
+### D29 — Dozzle stays a log viewer: actions and shell off
+
+Dozzle runs in server/agent mode with **actions and shell deliberately not
+enabled**.
+
+**Rationale.** Enabling them turns a log viewer into a **remote control for every
+connected Docker daemon**. It also duplicates `docker compose` from the host
+shell, where the repo is the source of truth
+([D9](#d9--this-repo-is-the-source-of-truth)) — so the capability adds reach
+without adding anything you cannot already do more safely. And it is premature
+while [the auth layer is unsolved](./OPEN-QUESTIONS.md#unified-auth-layer):
+the Dozzle agent is currently unauthenticated on the LAN.
+
+**Agent mode is both the topology and the security answer** for reaching other
+nodes' daemons — and note an agent **cannot** sit behind a socket-proxy, so
+agents are the mechanism rather than a workaround.

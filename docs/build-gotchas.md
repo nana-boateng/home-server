@@ -10,8 +10,9 @@ Related: [build-record.md](./build-record.md) — what was actually built ·
 
 ## Verify current versions; never pin from a guide or from memory
 
-**Every image tag and install instruction assumed at the start of the rev-8
-build was stale.** Not some — every one.
+**Every image tag and install instruction assumed at the start of the `media`
+and `dns` build was stale.** Not some — every one. The `monitor` build found the
+same again.
 
 Pull `:latest` once, read the version off the image, then pin that:
 
@@ -23,8 +24,31 @@ docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.version" }}
   <image>:latest
 ```
 
+**Not every image carries a version label**, so have a fallback ready:
+
+| Image | How to read its version |
+|---|---|
+| `louislam/uptime-kuma` | no label — read `/app/package.json` |
+| `binwiederhier/ntfy` | no label — `docker run --rm <img> --version` |
+
+**And the reported version is not always the tag.** ntfy reports `2.28.0` while
+the tag is `v2.28.0`.
+
 This applies to install procedures too, not only tags. The Pi-hole and Docker
 install steps both differed from what the guides said.
+
+---
+
+## Projects move
+
+`fmartinou/whats-up-docker` is now **`ghcr.io/getwud/wud`**.
+
+Check the image's `org.opencontainers.image.source` label for the project's real
+home before pinning something that may be unmaintained:
+
+```bash
+docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.source" }}' <image>:latest
+```
 
 ---
 
@@ -72,6 +96,17 @@ to the containers that actually need it, rather than every process in the LXC:
 
 ---
 
+## Multi-line heredocs through `pct exec` are fragile
+
+Several failed outright. In one case **the directory, the config file and the
+install command were all consumed as heredoc input and nothing ran at all** —
+with no error.
+
+**Prefer `pct enter` plus an editor for anything multi-line**, and always `cat`
+the file back before depending on it.
+
+---
+
 ## Node search domain propagates to containers only on restart
 
 `pct set <id> --searchdomain lan` **does not rewrite `/etc/resolv.conf` on a
@@ -101,6 +136,17 @@ TOML
 curl -sSL https://install.pi-hole.net | bash /dev/stdin --unattended
 pihole setpassword
 ```
+
+> **Keep that pre-seeded TOML minimal.** A `[webserver]` stanza with
+> `api.app_sudo = true` written by hand produced a config **the installer would
+> not start from**. Set that key *after* install, which writes whatever shape
+> FTL actually wants:
+>
+> ```bash
+> pihole-FTL --config webserver.api.app_sudo true
+> ```
+>
+> (`dns2` needs that key so nebula-sync can apply config through the API.)
 
 **Interactive install is not a workaround here.** Whiptail renders as an empty
 blue box and exits in the Proxmox web shell, and the installer also exits at its
@@ -206,3 +252,83 @@ disk instead of the NAS. Silently.
 
 `x-systemd.requires=network-online.target` in the fstab line helps. **Verify it
 after the next reboot of each node rather than trusting it.**
+
+---
+
+## keepalived in an unprivileged LXC: plain VRRP only
+
+`apt install keepalived` works and **needs no special container configuration** —
+no capability grants, no `lxc.cap.drop` changes.
+
+But **omit any `virtual_server` / LVS block.** That is the part that needs the
+`ip_vs` and `xt_set` kernel modules, which an unprivileged LXC cannot load. Plain
+VRRP with a `virtual_ipaddress` is all a floating IP requires.
+
+### The weight arithmetic is the real trap
+
+A `vrrp_script` weight has to actually push the priority *below* the backup's:
+
+```
+priority 150, weight -60  ->  90  < 100   VIP moves      correct
+priority 150, weight -40  ->  110 > 100   VIP stays      WRONG
+```
+
+With `-40`, **FTL could die while the primary kept the VIP and pointed every
+client at a dead resolver.** The health check was running correctly the whole
+time — only the arithmetic was wrong, and nothing in the logs says so.
+
+Test all four directions, not just one: stop keepalived, restart it, stop the
+*watched process*, restart that. The third is the one that catches a bad weight.
+
+---
+
+## Dozzle listens on 8080 internally, not 8888
+
+Map `8888:8080`.
+
+**Symptom of getting it wrong:** container reports healthy, `docker ps` shows
+`8080/tcp` unpublished, the UI is unreachable, and the log cheerfully says
+`Accepting connections on :8080`.
+
+**Dozzle also needs `/data` mounted**, or its users and settings are lost on
+every recreate.
+
+---
+
+## Services that default to wide open, or refuse to start
+
+Two opposite failure modes, both worth knowing before first run:
+
+| Service | Behaviour |
+|---|---|
+| **ntfy** | **Defaults to fully open.** Without `NTFY_AUTH_DEFAULT_ACCESS=deny-all`, anyone who can reach it can publish to or subscribe to your alert topics |
+| **wud** | **Refuses to start** without `WUD_AUTH_ADMIN_USER` and `WUD_AUTH_ADMIN_PASSWORD` |
+
+---
+
+## Beszel: the add-system dialog must be SAVED before its token is valid
+
+Closing the hub's add-system dialog without clicking **Add** still gives you a
+copyable install command — but the hub has **no record of that token**.
+
+The agent then loops on:
+
+```
+WebSocket connection failed err="unexpected status code: 401"
+```
+
+with no further detail, which reads like a networking or firewall problem and is
+not one.
+
+**Fix:** add the system properly, then replace the `Environment="TOKEN=..."` line
+in `/etc/systemd/system/beszel-agent.service`, `daemon-reload`, restart.
+
+> A 401 immediately at agent start, followed by a successful connect about ten
+> seconds later, is **normal**. Do not chase it.
+
+**Beszel agents belong native on the node, not in an LXC** — an agent inside a
+container reports that container's slice rather than the host.
+
+Expect `no valid SMART data found`: the sandboxed agent lacks the privileges.
+And check which device it picked for root I/O — on Rhea and Hestia it guessed
+`sda` on NVMe-booting machines, making those figures misleading.

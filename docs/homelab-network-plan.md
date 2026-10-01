@@ -90,11 +90,18 @@ See [DECISIONS.md](./DECISIONS.md) D24.
 
 | IP | LXC | Node | Status |
 |----|-----|------|--------|
-| `10.0.0.30` | `media` | Hestia | **Live** |
-| `10.0.0.31` | `dns` | Rhea | **Live** |
-| `.32–.59` | unassigned | | |
+| `10.0.0.30` | `media` (CT 200) | Hestia | **Live** |
+| `10.0.0.31` | `dns` (CT 100) — Pi-hole primary | Rhea | **Live** |
+| `10.0.0.32` | `dns2` (CT 201) — Pi-hole replica | Hestia | **Live** |
+| **`10.0.0.33`** | **DNS VIP** (keepalived VRRP) | floating | **Live** |
+| `10.0.0.34` | `monitor` (CT 202) | Hestia | **Live** |
+| `.35–.59` | unassigned | | |
 
 `.60–.99` remains free for non-LXC services.
+
+**`10.0.0.33` is what DHCP advertises** — clients never address a Pi-hole
+directly. CT ID numbering is
+[undecided](./OPEN-QUESTIONS.md#ct-id-numbering-scheme).
 
 ### Search domain
 
@@ -144,7 +151,8 @@ deferred by the deliberate choice to prove the flat 2.5G network first. Rollout
 ordering and its two traps:
 [network-core-crs310.md](./network-core-crs310.md#vlan-rollout--procedure).
 
-All VLANs use Pi-hole (`10.0.0.31`) as DNS via DHCP — not ISP DNS.
+All VLANs use the **DNS VIP (`10.0.0.33`)** via DHCP — not ISP DNS, and not a
+Pi-hole's own address.
 
 ---
 
@@ -193,9 +201,24 @@ Rules:
 Placement: the `dns` LXC on **Rhea** — see
 [Infrastructure Placement](#infrastructure-placement) below.
 
-**Live at `10.0.0.31`** since the rev-8 cutover; DHCP hands it to the whole
-network with **Secondary DNS deliberately empty** — a secondary is a bypass, not
-failover. Build detail: [build-record.md](./build-record.md).
+**Redundant and live.** Two Pi-holes, each with **its own local unbound**, behind
+a keepalived VRRP VIP at **`10.0.0.33`** — which is the only address DHCP hands
+out, with **Secondary DNS deliberately empty** (a secondary is a bypass, not
+failover).
+
+| | |
+|---|---|
+| `dns` — CT 100, Rhea, `10.0.0.31` | **primary** — the only one you edit |
+| `dns2` — CT 201, Hestia, `10.0.0.32` | replica, own unbound, one-way copy |
+| `10.0.0.33` | the VIP clients use |
+
+The replica is **deliberately on Hestia** — that separation is the point — and
+runs **its own unbound** rather than forwarding to Rhea's, which would otherwise
+make a Rhea failure take the replica's upstream with it.
+
+nebula-sync replicates primary → replica hourly. See
+[DECISIONS.md](./DECISIONS.md) D27, [build-record.md](./build-record.md), and the
+configs in [`infra/dns/`](../infra/dns/).
 
 **Clients are to be forced through Pi-hole using CRS310 NAT rules** — those rules
 are **still unbuilt**, and their absence was demonstrated during the cutover when
@@ -312,7 +335,7 @@ router filters. See [DECISIONS.md](./DECISIONS.md) D15 for why routing is
 deliberately *not* offloaded to the switch.
 
 1. **Guest** (`10.0.30.0/24`) → RFC1918: deny; → WAN: allow
-2. **IoT** (`10.0.20.0/24`) → Main: deny (default); allow DNS to `10.0.0.31`; allow WAN
+2. **IoT** (`10.0.20.0/24`) → Main: deny (default); allow DNS to `10.0.0.33`; allow WAN
 3. **Main** (`10.0.0.0/24`) → IoT: allow (admin); → anywhere: allow
 
 NFS (`10.0.0.20`) is **not** exposed to IoT/Guest.

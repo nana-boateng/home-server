@@ -10,10 +10,11 @@ shape below is deliberate rather than inherited.
 Related: [DECISIONS.md](./DECISIONS.md) · [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md) ·
 [hardware-inventory.md](./hardware-inventory.md)
 
-> **Build status: 2 of 11 LXCs live.** `media` (CT 200, Hestia, `10.0.0.30`) and
-> `dns` (CT 100, Rhea, `10.0.0.31`) are built and in service. What was built and
-> how it was verified: [build-record.md](./build-record.md). **Read
-> [build-gotchas.md](./build-gotchas.md) before building the next one.**
+> **Build status: 5 of 11 LXCs live** — `media`, `dns`, `dns2`, `monitor`, plus
+> the keepalived DNS VIP. **The DNS single point of failure is closed.** What was
+> built and how it was verified: [build-record.md](./build-record.md). **Read
+> [build-gotchas.md](./build-gotchas.md) before building the next one**, and
+> [update-discipline.md](./update-discipline.md) before upgrading anything.
 
 ---
 
@@ -61,7 +62,7 @@ Lean-infra-concentrated-on-one-node is the endorsed 2026 pattern. All four are
 
 | LXC | Service | RAM | Notes |
 |---|---|---|---|
-| `dns` | Pi-hole + Unbound | ~512 MB | **BUILT** — CT 100, `10.0.0.31`. Technitium rejected |
+| `dns` | Pi-hole + Unbound | ~512 MB | **BUILT** — CT 100, `10.0.0.31`, **primary**. Technitium rejected |
 | `proxy` | Caddy | ~512 MB | Needs a **custom build** carrying the Cloudflare DNS plugin |
 | `tailscale` | Tailscale | ~256 MB | Subnet router advertising `10.0.0.0/24`, free plan |
 | `omada` | Omada controller | ~2 GB | **Parked** pending the OC200 RMA |
@@ -78,10 +79,13 @@ indifferent to where a service runs.
 **The hardware and software Omada controllers are functionally identical**, so
 the OC200 RMA is not urgent.
 
-> **The SPOF is DNS specifically.** Proxy and Tailscale failing is annoying and
-> recoverable; DNS failing takes the whole network with it. Redundancy plan —
-> a second Pi-hole plus a Keepalived VRRP floating VIP — is
-> [open, not built](./OPEN-QUESTIONS.md#dns-redundancy--now-live-not-theoretical).
+> **The SPOF was DNS specifically** — proxy and Tailscale failing is annoying and
+> recoverable; DNS failing takes the whole network with it.
+>
+> **That SPOF is now closed.** A second Pi-hole (`dns2`, on Hestia) sits behind a
+> keepalived VRRP VIP at `10.0.0.33`, which is the only resolver DHCP advertises.
+> Proxy and Tailscale remain single-instance on Rhea, deliberately — they are the
+> recoverable half. See [D27](./DECISIONS.md).
 
 ---
 
@@ -101,6 +105,7 @@ the OC200 RMA is not urgent.
 | tautulli | Plex activity |
 | posterizarr | Needs TMDB at minimum, plus Fanart.tv / TVDB keys. Owns artwork. Run big jobs off-hours |
 | aggregarr | Plex-only. **Decided but not built** — not in the live compose |
+| dozzle-agent | Added for `monitor`, port 7007. Version-coupled to that server |
 | **navidrome** | Music serving. Single Go binary, <50 MB RAM. Subsonic API unlocks polished third-party mobile clients |
 
 Grouping validated: **Plex + Jellyfin against one library on one iGPU is
@@ -117,25 +122,29 @@ node-local plus Restic.
 > **Media stays on Hestia despite Themis having the stronger iGPU.** It keeps
 > load on the idle node, and Hestia's blast radius now includes other people.
 
-### `monitor` (Docker) ~2 GB — **the natural next build**
+### `dns2` (native) ~512 MB — Pi-hole replica
 
-Same node as `media`, and Kuma watching the media stack pays off immediately.
+> **BUILT** — CT 201, `10.0.0.32`. **Deliberately on Hestia, not Rhea; that
+> separation is the entire point.** Runs its own unbound. Behind the keepalived
+> VIP at `10.0.0.33`. **Edit the primary only** — sync is one-way.
+> [D27](./DECISIONS.md) · [`infra/dns/`](../infra/dns/)
 
-> **`resolv.conf` here points at `10.0.0.1` / `1.1.1.1`, NOT Pi-hole**, so
-> monitoring can still alert when Rhea is down.
->
-> **This exception now matters in practice.** `dns` is live and the whole network
-> points at it, so a `monitor` that resolved through Pi-hole would go blind at
-> exactly the moment Rhea died. In an LXC:
-> `pct set <id> --nameserver 10.0.0.1`, then restart.
+### `monitor` (Docker) ~2 GB
+
+> **BUILT** — CT 202, `10.0.0.34`. Live compose mirrored at
+> [`stacks/monitor/compose.yaml`](../stacks/monitor/compose.yaml).
+
+> **`resolv.conf` here points at `10.0.0.1`, NOT the DNS VIP**, so monitoring can
+> still alert when Rhea is down. `pct set 202 --nameserver 10.0.0.1`, then
+> restart. This is the one LXC that keeps the bypass.
 
 | Service | Job |
 |---|---|
 | uptime-kuma | *Is it up.* **Must have an off-Hestia notification path** for host-down events |
 | **beszel** | *Is it healthy* — CPU / RAM / disk creep. Hub here, ~10–15 MB agent per node, alerts via ntfy |
 | ntfy | Everyday notification hub — critical alerts deliberately bypass it |
-| what's-up-docker | Update notifications only. Wants each daemon's socket → one instance per LXC, or a socket-proxy |
-| dozzle | Live logs. **Agent mode** is both the topology and the security answer |
+| wud | Update notifications only — formerly `whats-up-docker`, now `ghcr.io/getwud/wud`. Refuses to start without admin credentials |
+| dozzle | Live logs. **Agent mode** is both the topology and the security answer. **Actions and shell deliberately off** — [D29](./DECISIONS.md) |
 
 The review found a real hole here: **availability and resource metrics are
 different jobs and do not overlap**, which is why most people run both. Uptime
@@ -144,6 +153,10 @@ Kuma alone structurally cannot see disk creep.
 - **Prometheus + Grafana deliberately skipped** — overkill at this size.
 - **A Dozzle agent cannot sit behind a socket-proxy**; agent mode is the answer.
 - **No log persistence anywhere** — Dozzle shows live logs only.
+- **Beszel agents run native on each node, not in containers** — an agent inside
+  an LXC reports that container's slice, not the host.
+- **Beszel hub/agents and Dozzle server/agent are version-coupled** —
+  [update-discipline.md](./update-discipline.md).
 - Proxmox owns the infra layer (quorum detects node-down); Kuma owns the service
   layer.
 
@@ -394,7 +407,8 @@ and `apollo` survive as `grab`, `arr` and `media`.
 |---|---|---|---|
 | `dns`, `proxy`, `tailscale`, `omada` | Rhea | — (native, no compose) | all four |
 | `media` | Hestia | **`media/` — the live compose** | aggregarr |
-| `monitor` | Hestia | `atlas/{uptime-kuma,dozzle}`, `hera/ntfy` | beszel, what's-up-docker |
+| `monitor` | Hestia | **`monitor/` — the live compose** | — |
+| `dns`, `dns2` | Rhea, Hestia | **`infra/dns/` — native configs** | — |
 | `apps` | Hestia | `aeos/*`, `hera/pairdrop`, `helios/{opengist,stirling-pdf,tracktor,shipshipship,listinglab}`, `io/immich-drop` | nextexplorer, tandoor, kitchenowl, paperless-ngx, immich public proxy |
 | `immich` | Hestia | — | all four containers |
 | `arr` | Themis | `asteria/{prowlarr,radarr,sonarr,bazarr}`, `io/sabnzbd` | byparr, abs-arr, audiobookshelf, reclaimerr, recyclarr |

@@ -49,9 +49,12 @@ Why:
 
 Recommended LXCs:
 
-- `media` — Plex, Jellyfin, Tautulli, Posterizarr, Aggregarr, Navidrome
-  (**`/dev/dri` passthrough**, transcode scratch on **tmpfs**)
-- `monitor` — Uptime Kuma, Beszel, ntfy, what's-up-docker, Dozzle
+- `media` — Plex, Jellyfin, Tautulli, Posterizarr, Navidrome (**built**;
+  `/dev/dri` passthrough, transcode scratch on **tmpfs**)
+- `monitor` — Uptime Kuma, Beszel, ntfy, wud, Dozzle (**built**; resolves via
+  `10.0.0.1`, deliberately bypassing Pi-hole)
+- `dns2` — the **Pi-hole replica** (**built**). Deliberately here rather than on
+  Rhea; that separation is what makes DNS redundant
 - `apps` — the utility layer, including Paperless-ngx and Stirling-PDF
 - `immich` — dedicated LXC: server, ML, Postgres, Valkey
 
@@ -80,13 +83,15 @@ Why:
 
 Recommended services — native-daemon LXCs only, no Docker:
 
-- `dns` — Pi-hole + Unbound
+- `dns` — Pi-hole + Unbound (**built**, the **primary** of a redundant pair)
 - `proxy` — Caddy
 - `tailscale` — subnet router
 - `omada` — parked pending the OC200 RMA
 
 Monitoring moved **off** Rhea to Hestia, so it can still alert when Rhea is
-down.
+down. **The Pi-hole replica is also off Rhea** — see
+[DECISIONS.md](./DECISIONS.md) D27. Rhea hosting DNS no longer means DNS dies
+with Rhea.
 
 > **Do NOT put the heavy ~29-service control plane here.** The `io` and
 > `asteria` stacks belong on Themis. This reverses earlier guidance that routed
@@ -96,7 +101,7 @@ down.
 Monitoring deliberately does **not** live here — Uptime Kuma, Beszel and ntfy
 are in Hestia's `monitor` LXC, whose `resolv.conf` points at `10.0.0.1` rather
 than Pi-hole, so alerting survives Rhea going down. Kuma still needs an
-[off-Hestia notification path](./OPEN-QUESTIONS.md#uptime-kuma-needs-an-off-hestia-notification-path)
+[off-Hestia notification path](./OPEN-QUESTIONS.md#uptime-kuma-off-hestia-notification-path)
 for host-down events about its own node.
 
 ### Themis
@@ -142,14 +147,18 @@ they go up or down together, insulated from qBittorrent.
 
 ```text
 Rhea — native-daemon LXCs, no Docker
-- dns        Pi-hole + Unbound
+- dns        Pi-hole + Unbound          CT 100  .31   BUILT (primary)
 - proxy      Caddy (custom build w/ Cloudflare DNS plugin)
 - tailscale  subnet router
 - omada      parked pending OC200 RMA
 
-Hestia — media, monitoring, apps, photos
-- media      plex jellyfin tautulli posterizarr aggregarr navidrome   [/dev/dri]
-- monitor    uptime-kuma beszel ntfy whats-up-docker dozzle
+Hestia — media, monitoring, apps, photos, DNS replica
+- media      plex jellyfin tautulli posterizarr navidrome dozzle-agent
+                                        CT 200  .30   BUILT  [/dev/dri]
+- dns2       Pi-hole replica + unbound  CT 201  .32   BUILT
+- monitor    uptime-kuma beszel ntfy wud dozzle
+                                        CT 202  .34   BUILT  [bypasses Pi-hole]
+             keepalived VIP                      .33   BUILT (floating)
 - apps       homepage jellyseerr wizarr speedtest nextexplorer pairdrop
              tandoor kitchenowl opengist immich-drop immich-public-proxy
              paperless-ngx stirling-pdf
@@ -319,9 +328,10 @@ Settled elsewhere:
   whole `10.0.0.0/16`. Headscale is not used. See D7.
 - **VLAN-ready addressing**: future VLANs use the third octet under a
   `10.0.0.0/16` supernet, so Main never re-IPs. See D10.
-- Whether a **secondary Pi-hole** is real redundancy is
-  [still open](./OPEN-QUESTIONS.md#dns-redundancy--now-live-not-theoretical) —
-  clients query both resolvers rather than failing over cleanly.
+- **DNS redundancy is built**: two Pi-holes, each with its own unbound, behind a
+  keepalived VRRP VIP at `10.0.0.33` — the only resolver DHCP advertises. A
+  "secondary DNS" entry would have been a bypass, not failover. See D27.
+  **Edit the primary only**; sync is one-way.
 
 ## Backups
 

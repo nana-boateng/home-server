@@ -7,16 +7,21 @@ Read [build-gotchas.md](./build-gotchas.md) before building the next LXC — it 
 the higher-value page of the two.
 
 Status against the [service architecture](./service-architecture.md):
-**2 of 11 LXCs built.**
+**5 of 11 LXCs built.** The DNS single point of failure is **closed**.
 
-| LXC | Node | IP | Status |
-|---|---|---|---|
-| `media` | Hestia | `10.0.0.30` | **Live** |
-| `dns` | Rhea | `10.0.0.31` | **Live** |
-| `monitor` | Hestia | — | Next |
-| `proxy`, `tailscale`, `omada` | Rhea | — | Not built |
-| `apps`, `immich` | Hestia | — | Not built |
-| `arr`, `grab`, `sandbox`, `homeassistant` | Themis | — | Not built |
+| LXC | CT | Node | IP | Status |
+|---|---|---|---|---|
+| `media` | 200 | Hestia | `10.0.0.30` | **Live** |
+| `dns` | 100 | Rhea | `10.0.0.31` | **Live** — Pi-hole primary |
+| `dns2` | 201 | Hestia | `10.0.0.32` | **Live** — Pi-hole replica |
+| — | — | floating | **`10.0.0.33`** | **Live** — keepalived VIP, what DHCP advertises |
+| `monitor` | 202 | Hestia | `10.0.0.34` | **Live** |
+| `proxy`, `tailscale`, `omada` | | Rhea | — | Not built |
+| `apps`, `immich` | | Hestia | — | Not built |
+| `arr`, `grab`, `sandbox`, `homeassistant` | | Themis | — | Not built |
+
+Native LXC configuration (keepalived, unbound, nebula-sync) is in
+[`infra/dns/`](../infra/dns/).
 
 ---
 
@@ -28,9 +33,9 @@ Debian 13 (trixie) amd64, **unprivileged**, `nesting=1,keyctl=1`, 4 cores,
 8192 MB, `swap 0`, 32 GB rootfs on `local-zfs`, `onboot 1`, static IP in the
 container config.
 
-> **`nameserver` is still `10.0.0.1` and should now be `10.0.0.31`** — `dns` is
-> live and `media` is an ordinary client. Only `monitor` keeps the bypass.
-> `pct set 200 --nameserver 10.0.0.31`, then restart.
+> **`nameserver` is still `10.0.0.1` and should now be the VIP `10.0.0.33`** —
+> `media` is an ordinary client. Only `monitor` keeps the bypass.
+> `pct set 200 --nameserver 10.0.0.33`, then restart. **Still outstanding.**
 
 ### GPU passthrough
 
@@ -120,6 +125,7 @@ uncommitted `/opt/stacks/media/.env` (mode `600`). Configs under
 | tautulli | `lscr.io/linuxserver/tautulli` | `v2.18.2-ls245` |
 | navidrome | `deluan/navidrome` | `0.64.2` |
 | posterizarr | `ghcr.io/fscorrupt/posterizarr` | `3.3.6` |
+| dozzle-agent | `amir20/dozzle` | `v11.1.3` — port 7007, added for `monitor` |
 
 **Plex runs `network_mode: host`** for discovery and native remote access
 ([D18](./DECISIONS.md)), so it has no `ports:` block — it is on
@@ -186,7 +192,7 @@ dig sigok.verteiltesysteme.net              # NOERROR with the ad flag
 Proxmox owns `/etc/resolv.conf` via its `# --- BEGIN PVE ---` block, which is
 cleaner.
 
-### Pi-hole
+### Pi-hole — PRIMARY
 
 Core **v6.4.3**, Web **v6.6**, FTL **v6.7.1**. Installed unattended — see
 [build-gotchas.md](./build-gotchas.md#pi-hole-v6---unattended-is-ignored-on-a-genuinely-fresh-system),
@@ -234,10 +240,215 @@ dig doubleclick.net +short    # 0.0.0.0
 > **Rollback for any DNS emergency: set the ER605's Primary DNS back to
 > `10.0.0.1`.** The router answers regardless of Pi-hole's state.
 
-### Still to do inside `dns`
+Also hosts **nebula-sync** — see below.
 
-**Local `.lan` DNS records** for split-horizon ([D20](./DECISIONS.md)) so
-`plex.lan` and friends resolve internally. **Not yet added.**
+### Local DNS records
+
+Local `.lan` records live **here, on the primary**, and replicate to the
+replica. Added so far: **`plex.lan → 10.0.0.30`**.
+
+Still outstanding: jellyfin, tautulli, navidrome, posterizarr (all `.30`),
+`pihole.lan → .33` (follows the VIP), and the four hosts — `rhea .10`,
+`themis .11`, `hestia .12`, `tartarus .20`.
+
+---
+
+## `dns2` + keepalived VIP + nebula-sync
+
+### `dns2` — CT 201 on Hestia, `10.0.0.32`
+
+Built identically to `dns`: Debian 13 amd64, unprivileged, **no nesting**,
+2 cores, 512 MB, `swap 0`, 8 GB rootfs, static IP. Same Pi-hole versions
+(Core 6.4.3 / Web 6.6 / FTL 6.7.1), same 74,761-domain gravity.
+
+> **It runs its OWN unbound on `127.0.0.1#5335`.** It must **not** forward to
+> Rhea's — if it did, a Rhea failure would take the replica's upstream with it
+> and defeat the entire design. The replica would hold the VIP and resolve
+> nothing.
+
+**Deliberately on Hestia, not Rhea.** That separation is the whole point.
+
+One config difference from the primary: `webserver.api.app_sudo = true`, so
+nebula-sync can apply configuration through the API. Set it **after** install —
+do not hand-write it into the TOML:
+
+```bash
+pihole-FTL --config webserver.api.app_sudo true
+```
+
+### keepalived — VRRP VIP at `10.0.0.33`
+
+`apt install keepalived` on both. **Plain VRRP only — no `virtual_server`/LVS
+block**, which is what needs the `ip_vs`/`xt_set` kernel modules an unprivileged
+LXC cannot load.
+
+**No special container config was needed** — no capability grants, no
+`lxc.cap.drop` changes, nothing.
+
+Configs are in [`infra/dns/`](../infra/dns/):
+[`keepalived-primary.conf`](../infra/dns/keepalived-primary.conf) and
+[`keepalived-replica.conf`](../infra/dns/keepalived-replica.conf).
+
+> **The weight arithmetic is the part that is easy to get wrong.**
+>
+> Priority 150 with `weight -60` drops the primary to **90** on FTL failure,
+> below the backup's 100, so the VIP moves.
+>
+> An earlier `-40` gave **110** — still above 100 — so **FTL could die while the
+> primary kept the VIP and pointed every client at a dead resolver.** The health
+> check was running correctly the whole time; only the arithmetic was wrong.
+
+**Preemption is ON** (the default; no `nopreempt`). The primary reclaims the VIP
+whenever it is healthy.
+
+Accepted trade-off: an FTL restart on the primary briefly moves the VIP and moves
+it back. `nopreempt` was **rejected** because silently running on the replica for
+weeks is the worse failure — the replica's config is a one-way copy, so edits
+made there vanish.
+
+Verified in **all four directions**:
+
+| Condition | Result |
+|---|---|
+| normal | primary holds `.33` as `secondary proto keepalived`; replica has only `.32` |
+| keepalived stopped on primary | replica takes `.33` and answers queries |
+| keepalived restarted | primary reclaims, replica releases |
+| `pihole-FTL` stopped on primary | replica takes `.33`; on FTL restart, primary reclaims |
+
+### DHCP cutover
+
+ER605 → Network → LAN → DHCP: **Primary DNS `10.0.0.33`, Secondary DNS empty.**
+
+Verified from a client with no explicit resolver:
+
+```bash
+dig doubleclick.net +short     # -> 0.0.0.0
+```
+
+### nebula-sync — on `dns`, native systemd
+
+**nebula-sync is the Pi-hole v6 tool.** Orbital Sync is v5-era, built around the
+old API and Teleporter workflow, with one repo archived in March 2025.
+
+v0.11.2, binary from the GitHub release, installed to
+`/usr/local/bin/nebula-sync`. Env template and unit file in
+[`infra/dns/`](../infra/dns/).
+
+> **`PRIMARY` is addressed as `10.0.0.31`, NOT the VIP.** Sync must always push
+> *from* the real primary, never from whoever happens to hold `.33`.
+
+The binary does its own cron scheduling, so the unit is a **long-lived daemon,
+not a systemd timer**. `systemctl restart nebula-sync` forces an immediate sync.
+
+Verified: the log shows authenticate → sync teleporters → sync configs → run
+gravity → *"Sync completed"* in under a second. And `plex.lan`, added on the
+primary, resolved on `10.0.0.32` after a forced sync.
+
+> **If it restarts every 30 seconds, `PRIMARY`/`REPLICAS` are not set.** That is
+> the documented behaviour for missing config, not a crash.
+
+> **`10.0.0.31` is the only Pi-hole you edit.** Sync is one-way; anything changed
+> on the replica is overwritten within the hour. See [D27](./DECISIONS.md).
+
+---
+
+## `monitor` — CT 202 on Hestia, `10.0.0.34`
+
+### Container
+
+Debian 13 amd64, unprivileged, `nesting=1,keyctl=1`, 2 cores, 2048 MB, `swap 0`,
+16 GB rootfs, `onboot 1`, static IP. Docker **29.8.2**.
+
+> **`nameserver 10.0.0.1` — the deliberate Pi-hole bypass.** Monitoring must
+> still alert when Rhea is down, so `monitor` is the one LXC that does not use
+> the DNS VIP.
+
+### Stack
+
+`/opt/stacks/monitor/compose.yaml`, mirrored at
+[`stacks/monitor/compose.yaml`](../stacks/monitor/compose.yaml). Configs under
+`/opt/appdata/monitor/<service>`; credentials in an uncommitted
+`/opt/stacks/monitor/.env` (mode `600`).
+
+**Versions as pulled and verified 2026-10-01:**
+
+| Service | Image | Version | Port (host:container) |
+|---|---|---|---|
+| uptime-kuma | `louislam/uptime-kuma` | `1.23.17` | 3001:3001 |
+| beszel | `henrygd/beszel` | `0.20.0` | 8090:8090 |
+| ntfy | `binwiederhier/ntfy` | `v2.28.0` | 8080:8080 |
+| wud | `ghcr.io/getwud/wud` | `9.2.1` | 3000:3000 |
+| dozzle | `amir20/dozzle` | `v11.1.3` | **8888:8080** |
+
+**ntfy** runs with `NTFY_AUTH_DEFAULT_ACCESS=deny-all`. It **defaults to fully
+open**, so without this anyone who can reach it could publish to or subscribe to
+alert topics. Create a user after first start:
+
+```bash
+docker exec -it ntfy ntfy user add --role=admin <name>
+```
+
+**wud** requires `WUD_AUTH_ADMIN_USER` and `WUD_AUTH_ADMIN_PASSWORD` **or it
+refuses to start**. Supplied via `env_file: .env`. It watches the local Docker
+socket by default — no watcher config needed.
+
+**dozzle** needs `/opt/appdata/monitor/dozzle:/data` mounted **or its users and
+settings are lost on every recreate**. Server mode, with
+`DOZZLE_REMOTE_AGENT=10.0.0.30:7007` pointing at the agent in `media`.
+
+> **Actions and shell are deliberately NOT enabled.** Dozzle is a log viewer;
+> enabling them turns it into a remote control for every connected Docker
+> daemon, duplicates `docker compose` from the host shell where the repo is the
+> source of truth ([D9](./DECISIONS.md)), and is premature while the auth layer
+> is unsolved.
+
+### Beszel agents — native systemd on all three PVE nodes
+
+**Not in containers.** An agent inside an LXC reports that container's slice, not
+the node. Installed with the hub's own generated command (the `get.beszel.dev`
+script), port 45876, one token per host. **Auto-updates declined** —
+[update-discipline.md](./update-discipline.md).
+
+> **Gotcha that cost time: the hub's add-system dialog must be SAVED before its
+> token is valid.** Closing it without clicking Add generates a command whose
+> token the hub has no record of, and the agent loops on
+> `WebSocket connection failed err="unexpected status code: 401"` with no further
+> detail.
+>
+> Fix: add the system properly, then replace the `Environment="TOKEN=..."` line
+> in `/etc/systemd/system/beszel-agent.service`, `daemon-reload`, restart.
+>
+> A 401 immediately at agent start followed by a successful connect ten seconds
+> later is **normal**.
+
+**Known-wrong metric:** the agent logs
+`WARN Using most active device for root I/O ... device=sda` on **Rhea and
+Hestia**, both of which boot from NVMe — so their disk I/O figures are
+misleading. Themis correctly detected `nvme0n1`. Fix by setting `FILESYSTEM` in
+the service file; [open](./OPEN-QUESTIONS.md#beszel-filesystem-override-on-rhea-and-hestia).
+
+`no valid SMART data found` is **expected** — the sandboxed agent lacks the
+privileges, and `sda` is the wrong device on two of three anyway.
+
+### Uptime Kuma monitors to create
+
+| Type | Target | Why |
+|---|---|---|
+| **DNS** (native type, not HTTP) | `10.0.0.31`, `10.0.0.32` | Tells you *which* Pi-hole is unhealthy |
+| **DNS** | `10.0.0.33` | Whether clients can resolve at all — should stay green *through* a failover |
+| **DNS** | a `.lan` name against `.32` specifically | Catches a replica that resolves public names but has silently lost its local records — the failure nebula-sync could produce |
+| HTTP | each media service | |
+| Ping | the four hosts | |
+| HTTP | Beszel, wud | |
+
+60s interval is plenty.
+
+> **The off-Hestia notification path is still outstanding, and it is the piece
+> that makes this layer meaningful.** Kuma and ntfy both live on Hestia, so a
+> Hestia failure kills the alert and the alerting system together. Kuma needs a
+> second channel that leaves the network entirely — email, Discord, Pushover —
+> with ntfy kept as the everyday hub.
+> [Open](./OPEN-QUESTIONS.md#uptime-kuma-off-hestia-notification-path).
 
 ---
 

@@ -18,6 +18,7 @@ The most important reference documents are:
 - [Service Architecture](./docs/service-architecture.md) — the 11-LXC + VM map
 - [Build Record](./docs/build-record.md) — what is live, and how it was verified
 - [Build Gotchas](./docs/build-gotchas.md) — **read before building any LXC**
+- [Update Discipline](./docs/update-discipline.md) — version-coupled pairs; nothing auto-updates
 - [Open Questions](./docs/OPEN-QUESTIONS.md) — unratified items and known risks
 - [Hardware Inventory](./docs/hardware-inventory.md) — measured node specs
 - [Rebuild Runbook](./docs/rebuild-runbook.md) — the PVE 9 + `gaia` build
@@ -80,7 +81,9 @@ advantage — Themis does H.265 too, and faster.
 Intended workloads:
 
 - `media` LXC — Plex, Jellyfin, Tautulli, Posterizarr, Navidrome (**built**)
-- `monitor`, `apps`, `immich` LXCs
+- `monitor` LXC — Uptime Kuma, Beszel, ntfy, wud, Dozzle (**built**)
+- `dns2` LXC — the Pi-hole replica, deliberately not on Rhea (**built**)
+- `apps`, `immich` LXCs
 - Channels-DVR
 - Booklore
 - Kavita
@@ -140,6 +143,11 @@ not used anywhere.
 Future VLANs use the **third octet** under a `10.0.0.0/16` supernet (VLAN 10
 Main, 20 IoT, 30 Guest), so Main never re-IPs when they arrive. Tagging happens
 on the switch; routing and firewalling stay on the ER605.
+
+**DNS is redundant.** Two Pi-holes, each with its own unbound, behind a
+keepalived VRRP VIP at `10.0.0.33` — the only resolver DHCP advertises. The
+replica lives on Hestia, not Rhea, which is the entire point. Config sync is
+**one-way**, so `10.0.0.31` is the only Pi-hole you ever edit.
 
 Full detail: [Homelab Network Plan](./docs/homelab-network-plan.md) and
 [Network Core — CRS310](./docs/network-core-crs310.md).

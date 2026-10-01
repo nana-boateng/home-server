@@ -6,88 +6,138 @@ Raised, reasoned through, and **not ratified**. Nothing here is implemented.
 is settled, move it to [DECISIONS.md](./DECISIONS.md) with its rationale and
 delete it here — this file should shrink as the design firms up.
 
-Last reviewed: **2026-10-01**.
+Last reviewed: **2026-10-04**.
 
 ---
 
-## Urgent
+## Small items inside what is already built
 
-### DNS redundancy — now live, not theoretical
+Each of these is a loose end in a live LXC, not an architectural question.
 
-**DHCP points every client on the network at `10.0.0.31`** — a single container
-on a single node. **If Rhea dies, the network loses name resolution.** This was
-an acceptable risk while `dns` was unbuilt; it is now the live topology.
+### `media` resolv.conf still points at `10.0.0.1`
 
-> **Rollback for any DNS emergency: set the ER605's Primary DNS back to
-> `10.0.0.1`.** The router answers regardless of Pi-hole's state. Know this
-> before you need it.
+It was built before `dns` existed. `media` is an ordinary client and should use
+the VIP; only `monitor` keeps the bypass.
 
-The fix: **a second Pi-hole on Hestia plus a Keepalived VRRP floating VIP**, with
-clients and DHCP pointing only at the VIP.
+```bash
+pct set 200 --nameserver 10.0.0.33   # then restart
+```
 
-> **Never update both Pi-holes at once** — a bad update with both down means zero
-> redundancy at exactly the wrong moment.
+### Hardware transcoding is still OFF inside Plex and Jellyfin
 
-"Secondary DNS in DHCP" is **not** failover: clients either query both, wait an
-age, or cache the primary and never try the backup. See [D20](./DECISIONS.md).
+**The passthrough is verified but inert until enabled in each app's own
+settings.** Encode and decode both work at the `vainfo` level — nothing is using
+them.
+
+- **Jellyfin:** Dashboard → Playback → Transcoding → VA-API,
+  `/dev/dri/renderD128`; enable H.264 / HEVC / VP9, **leave AV1 off**.
+- **Plex:** Settings → Transcoder → enable hardware transcoding, temporary
+  directory `/transcode`.
+
+Confirm with a forced transcode — **Tautulli shows the decision.**
+
+### Remaining `.lan` records
+
+Only **`plex.lan`** exists. Still to add, all on the **primary** (`10.0.0.31`) —
+never the replica:
+
+| Record | Target |
+|---|---|
+| jellyfin, tautulli, navidrome, posterizarr | `10.0.0.30` |
+| `pihole.lan` | `10.0.0.33` — follows the VIP |
+| rhea / themis / hestia / tartarus | `.10` / `.11` / `.12` / `.20` |
+
+### Beszel `FILESYSTEM` override on Rhea and Hestia
+
+Both agents report **`sda`** for root I/O despite booting from **NVMe**, so
+their disk figures are misleading. Themis correctly detected `nvme0n1`.
+
+Fix by setting `FILESYSTEM` in `/etc/systemd/system/beszel-agent.service`.
+
+`no valid SMART data found` is expected and separate — the sandboxed agent lacks
+the privileges.
+
+### Uptime Kuma off-Hestia notification path
+
+**This is the piece that makes the monitoring layer meaningful.** Kuma *and* ntfy
+both live on Hestia, so a Hestia failure kills the alert and the alerting system
+together.
+
+Kuma needs a second channel that **leaves the network entirely** — email,
+Discord, Pushover — with ntfy kept as the everyday hub.
+
+---
+
+## Architectural
 
 ### Clients are not forced through Pi-hole
 
 The **CRS310 NAT rules** from [D20](./DECISIONS.md) are **unbuilt, and their
-absence has now been demonstrated**: during the cutover, a Mac with `1.1.1.1`
-set manually in network settings bypassed Pi-hole entirely. `dig` against the
-Pi-hole IP looked perfect while ordinary resolution never touched it.
+absence has been demonstrated**: during the first cutover, a Mac with `1.1.1.1`
+set manually bypassed Pi-hole entirely. `dig` against the Pi-hole IP looked
+perfect while ordinary resolution never touched it.
 
 Until the NAT rules exist, any client with a manual resolver silently opts out of
-both filtering and split-horizon.
+filtering and split-horizon both.
 
----
+### Unified auth layer
 
-## Blocking the next builds
+**The biggest open architectural question in the utility layer.** Authentik or
+Authelia.
+
+Currently **unauthenticated on the LAN**:
+
+| Service | Address |
+|---|---|
+| Dozzle agent | `10.0.0.30:7007` |
+| Posterizarr WebUI | `10.0.0.30:8000` |
+
+Would also cover Homepage when `apps` is built.
+
+### CT ID numbering scheme
+
+**Undefined.** IDs grew by node — 1xx Rhea, 2xx Hestia — which splits the DNS
+pair across ranges: `dns` is **100**, `dns2` is **201**, even though the pair is
+one logical unit deliberately split across nodes.
+
+A service-based scheme would read better — e.g. 100/101 DNS, 200 media, 3xx
+arr/grab, 4xx apps.
+
+**Decide before the remaining six LXCs compound it.** Not renumbering what
+exists.
+
+### Docker version drift
+
+`media` is on **29.8.1**, `monitor` on **29.8.2** — built days apart. Harmless
+now; worth a deliberate bump policy before there are eleven of them.
 
 ### Themis needs subuid/subgid before `arr` or `grab`
 
 Themis lacks `root:3004:1` in `/etc/subuid` and `/etc/subgid`, plus the six
-`lxc.idmap` lines in each container config. **Hestia already has this; Themis
-does not.**
+`lxc.idmap` lines per container. **Hestia has this; Themis does not.**
 
-Without it, an unprivileged container maps UID 3004 → 103004, which the NFS
-export rejects — and the share is mode `drwx------`, so the guest sees nothing
-at all. Exact block:
+Without it an unprivileged container maps UID 3004 → 103004, which the NFS export
+rejects — and the share is mode `drwx------`, so the guest sees nothing at all.
+Exact block:
 [build-gotchas.md](./build-gotchas.md#unprivileged-containers-need-an-idmap-to-use-the-nfs-share).
 
 ### `/themis-500/incomplete` is owned `root:root`
 
 qBittorrent runs as 3004 and **cannot write there**. Must become `3004:3004`
 before `grab` goes up — do it as part of that build so the whole download path
-can be verified end to end.
-
-### `media` still resolves via `10.0.0.1`
-
-It was built before `dns` existed. `media` is an ordinary client and should point
-at `10.0.0.31`; only `monitor` keeps the bypass.
-
-```bash
-pct set 200 --nameserver 10.0.0.31   # then restart
-```
-
-### Local `.lan` DNS records are not configured
-
-Split-horizon ([D20](./DECISIONS.md)) is decided but Pi-hole has no local records
-yet, so `plex.lan` and friends do not resolve. Needed before Caddy is useful.
+gets verified at once.
 
 ### ER605 cannot advertise a single-label search domain
 
-Both `lan` and `.lan` fail the router's DHCP *Default Domain* validation —
-*"Invalid domain format"*. The field wants at least one dot, and was left blank.
-
-Two ways out, and this must be a **deliberate repo decision**, not an
-improvisation at the console:
+Both `lan` and `.lan` fail the router's DHCP *Default Domain* validation. The
+field was left blank, so **`.lan` cannot be advertised by DHCP on this router**.
 
 | Option | Cost |
 |---|---|
-| Set the search domain per-client | Manual, and easy to miss a device |
+| Set the search domain per-client | Manual, easy to miss a device |
 | Move to a two-label name (e.g. `home.lan`) | Changes **every** local DNS record and Caddy hostname |
+
+A **deliberate repo decision**, not an improvisation at the console.
 
 ### Themis's node search domain is unchecked
 
@@ -112,15 +162,6 @@ plus one-way rsync is not a backup.**
 
 Underlined hard by Immich, which holds the most irreplaceable data in the lab and
 wants 3-2-1 — **both** the database and the media filesystem.
-
-### Unified auth layer
-
-**The biggest open architectural question in the utility layer.** Authentik or
-Authelia would cover Dozzle, Homepage, **and Posterizarr's WebUI, which is
-currently exposed on the LAN with no authentication at all.**
-
-Fine while everything is Tailscale-only; a problem the moment anything becomes
-LAN- or internet-reachable.
 
 ---
 
@@ -175,8 +216,9 @@ Only materialises where both ends support it. **The M720q is gigabit.**
 ### Docker socket exposure
 
 Dozzle is solved via **agent mode** — and an agent *cannot* sit behind a
-socket-proxy, so agents are both the topology and the security answer.
-**what's-up-docker still wants a socket-proxy.**
+socket-proxy, so agents are the mechanism rather than a workaround.
+**wud still wants a socket-proxy**; it mounts the socket read-only today, which
+is still root-equivalent read access.
 
 ### No log persistence anywhere
 
@@ -187,11 +229,6 @@ Dozzle shows **live logs only**. Nothing retains logs across a container restart
 **The thing that would alert you is the thing that stopped.** Put Uptime Kuma on
 watch-the-watcher duty. If it graduates from trial to relied-upon, move it out of
 `sandbox`.
-
-### Uptime Kuma needs an off-Hestia notification path
-
-`monitor` will live on Hestia. A host-down event for Hestia is exactly the event
-it cannot report through itself.
 
 ### Home Assistant USB passthrough pins the VM
 
@@ -227,7 +264,10 @@ needs it rather than where the rack is.
 
 | Was | Resolution |
 |---|---|
-| `/dev/dri` passthrough for `media` | **Done.** Hardware encode *and* decode verified with `vainfo` — [build-record.md](./build-record.md) |
+| **DNS redundancy (urgent)** | **Built and tested.** Two Pi-holes, keepalived VIP at `10.0.0.33`, nebula-sync hourly — [D27](./DECISIONS.md). **The SPOF is closed** |
+| Where the second Pi-hole lives | `dns2`, CT 201, on **Hestia** — not Rhea, which is the point |
+| How the two Pi-holes stay in sync | nebula-sync, **one-way**, hourly. Edit the primary only |
+| `/dev/dri` passthrough for `media` | **Done.** Encode *and* decode verified with `vainfo` |
 | Transcode scratch on NFS | **Done.** Docker-level tmpfs — the LXC-level mount fails silently |
 | `themis-500/downloads` rename, orphaned `transcode` | **Done** |
 | sisyphus host mounts and bind mounts | **Done** on all three nodes, at `/mnt/sisyphus` — [D25](./DECISIONS.md) |
@@ -241,7 +281,7 @@ needs it rather than where the rack is.
 | qBittorrent blocked on a second SSD | Unblocked by the `themis-500` HDD pool |
 | Themis on a mechanical boot disk | Rebuilt onto NVMe |
 | gluetun / VPN killswitch | Removed — [D17](./DECISIONS.md) |
-| Watchtower auto-update risk | Dropped for what's-up-docker, notify-only |
+| Watchtower auto-update risk | Dropped for wud, notify-only — [D28](./DECISIONS.md) |
 | Rhea load pinned at 1.00 | The `snd_hda_intel` audio timeout — [fixed](./hardware-inventory.md#rhea--snd_hda_intel-must-stay-blacklisted) |
 | ZFS depends on Rhea's RAM upgrade | False. ARC auto-caps at 10% of RAM |
 | VLANs blocked on a working Omada controller | False. The MikroTik does VLANs |

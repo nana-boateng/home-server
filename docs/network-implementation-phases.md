@@ -109,8 +109,10 @@ the third octet under a `10.0.0.0/16` supernet, so Main never re-IPs.
 | IoT | **20** | 10.0.20.1/24 | 10.0.20.100–200 | planned |
 | Guest | **30** | 10.0.30.1/24 | 10.0.30.100–200 | planned |
 
-**DHCP DNS (all VLANs):** primary `10.0.0.50`, secondary `10.0.0.51` (once Phase 3
-secondary exists; use `10.0.0.50` only until then).
+**DHCP DNS (all VLANs): the VIP `10.0.0.33` only.** Secondary DNS stays
+**empty** — a secondary is a bypass, not failover. Redundancy comes from
+keepalived moving the VIP between the two Pi-holes, not from the client
+choosing. See [DECISIONS.md](./DECISIONS.md) D20 and D27.
 
 Domain: `lan`. Never `local` — see [DECISIONS.md](./DECISIONS.md) D2.
 
@@ -156,7 +158,7 @@ Apply rules in order (see [homelab-network-plan.md](./homelab-network-plan.md)):
 1. Guest → private RFC1918: **deny**
 2. Guest → WAN: **allow**
 3. IoT → Main: **deny** (default)
-4. IoT → 10.0.0.50:53: **allow**   *(IoT is `10.0.20.0/24`)*
+4. IoT → 10.0.0.33:53: **allow**   *(IoT is `10.0.20.0/24`)*
 5. IoT → WAN: **allow**
 6. Main → IoT: **allow**
 7. VPN → Main: **allow**
@@ -265,7 +267,7 @@ Deploy as a **Proxmox LXC**, with Unbound inside the same container. **Not** a
 Docker container and **not** part of a Compose stack — restarting a stack must
 never take down DNS.
 
-- Static `10.0.0.50`
+- Static `10.0.0.31` (primary; the replica is `10.0.0.32`, the VIP `10.0.0.33`)
 - Upstream: Unbound on localhost → recursive
 - **Split-horizon**: internal hostnames resolve to LAN IPs
 - Local DNS records: all `*.lan` hosts from [homelab-network-plan.md](./homelab-network-plan.md)
@@ -287,7 +289,7 @@ Deploy as a **Proxmox LXC** alongside Pi-hole.
 
 ### 3.3 Confirm DNS house-wide
 
-Omada DHCP already points to `10.0.0.50`. From phone on WiFi:
+DHCP points at the VIP `10.0.0.33`. From a phone on WiFi:
 
 ```bash
 nslookup tartarus.lan
@@ -368,9 +370,12 @@ belongs in `arr` on Themis, beside abs-arr which imports into it.
 - **Home Assistant OS** — dedicated VM (USB/Zigbee/Z-Wave passthrough if used)
 - **Immich**, **Paperless-ngx** — VM or LXC per appetite
 - LXC + bootstrap: `helios`
-- Secondary Pi-hole at `10.0.0.51` (Unbound forward to primary or sync blocklists).
-  Note this is **availability, not clean failover** — see the
-  [open question](./OPEN-QUESTIONS.md#dns-redundancy--now-live-not-theoretical).
+- **The Pi-hole replica lives here** — `dns2`, CT 201, `10.0.0.32`, with **its
+  own unbound** (it must not forward to the primary's). Behind a keepalived VRRP
+  VIP at `10.0.0.33`, which is what DHCP advertises. **Built** — see
+  [build-record.md](./build-record.md) and [D27](./DECISIONS.md).
+- **`monitor`** — CT 202, `10.0.0.34`, deliberately resolving via `10.0.0.1`
+  rather than the VIP, so it can alert when Rhea is down.
 
 HA networking: if IoT devices need mDNS, plan VLAN/firewall exception or put
 controller on IoT with Main access — document choice in `config/site.env`.

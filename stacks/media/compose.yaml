@@ -105,5 +105,19 @@ services:
       - ${STORAGE_DIR}:/data
     restart: unless-stopped
 
+  # Dozzle AGENT. The server lives in monitor (10.0.0.34) and connects here.
+  # Version-COUPLED to that server — v11.1.3 both ends. Every future stack adds
+  # another agent to keep in step; see docs/update-discipline.md.
+  # NOTE: currently unauthenticated on the LAN (OPEN-QUESTIONS.md).
+  dozzle-agent:
+    image: amir20/dozzle:v11.1.3
+    container_name: dozzle-agent
+    command: agent
+    ports:
+      - '7007:7007'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
   # aggregarr — decided (Plex-only) but NOT YET BUILT. Not in the live compose.
   # Add when wanted; see docs/service-architecture.md.

@@ -1,0 +1,92 @@
+# monitor — CT 202 on Hestia, 10.0.0.34
+#
+# Mirrors the LIVE build at /opt/stacks/monitor/compose.yaml.
+# Build record: docs/build-record.md · Gotchas: docs/build-gotchas.md
+#
+# THE LXC RESOLVES VIA 10.0.0.1, NOT THE DNS VIP. That bypass is deliberate:
+# monitoring must still alert when Rhea is down. Set at the LXC, not here:
+#   pct set 202 --nameserver 10.0.0.1   (then restart)
+#
+# Versions pinned to what was pulled and verified 2026-10-01. Several of these
+# images carry no version label — see docs/build-gotchas.md for how to read a
+# version off each one. Beszel and Dozzle are version-COUPLED to their agents;
+# see docs/update-discipline.md before bumping either.
+
+services:
+  # Is it up. Service-layer availability; Proxmox quorum covers node-down.
+  uptime-kuma:
+    image: louislam/uptime-kuma:1.23.17
+    container_name: uptime-kuma
+    ports:
+      - '3001:3001'
+    volumes:
+      - ${APPDATA_DIR}/monitor/uptime-kuma:/app/data
+    restart: unless-stopped
+
+  # Is it healthy. CPU / RAM / disk creep — the hole Kuma structurally cannot
+  # cover. Agents run NATIVE on each PVE node, not in containers: an agent
+  # inside an LXC reports that container's slice, not the node.
+  beszel:
+    image: henrygd/beszel:0.20.0
+    container_name: beszel
+    ports:
+      - '8090:8090'
+    volumes:
+      - ${APPDATA_DIR}/monitor/beszel:/beszel_data
+    restart: unless-stopped
+
+  # Everyday notification hub. Critical alerts deliberately bypass it — see
+  # the off-Hestia channel in docs/OPEN-QUESTIONS.md.
+  ntfy:
+    image: binwiederhier/ntfy:v2.28.0
+    container_name: ntfy
+    command: serve
+    environment:
+      # ntfy defaults to FULLY OPEN. Without this, anyone who can reach it can
+      # publish to or subscribe to alert topics. Add users after first start:
+      #   docker exec -it ntfy ntfy user add --role=admin <name>
+      - NTFY_AUTH_DEFAULT_ACCESS=deny-all
+      - NTFY_BASE_URL=http://10.0.0.34:8080
+      - NTFY_BEHIND_PROXY=true
+    ports:
+      - '8080:80'
+    volumes:
+      - ${APPDATA_DIR}/monitor/ntfy:/var/lib/ntfy
+      - ${APPDATA_DIR}/monitor/ntfy/etc:/etc/ntfy
+    restart: unless-stopped
+
+  # Update NOTIFICATIONS ONLY. Watchtower was dropped deliberately (D17/D22) —
+  # nothing in this lab auto-updates. Formerly fmartinou/whats-up-docker.
+  wud:
+    image: ghcr.io/getwud/wud:9.2.1
+    container_name: wud
+    # Refuses to start without WUD_AUTH_ADMIN_USER and WUD_AUTH_ADMIN_PASSWORD.
+    env_file: .env
+    ports:
+      - '3000:3000'
+    volumes:
+      - ${APPDATA_DIR}/monitor/wud:/store
+      # Root-equivalent. Still wants a socket-proxy — see OPEN-QUESTIONS.md.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  # Live logs. Server mode; agents elsewhere. An agent cannot sit behind a
+  # socket-proxy, which is why agent mode is both the topology and the security
+  # answer. No log persistence anywhere — this is live-only.
+  dozzle:
+    image: amir20/dozzle:v11.1.3
+    container_name: dozzle
+    environment:
+      - DOZZLE_REMOTE_AGENT=10.0.0.30:7007
+      # Actions and shell are deliberately NOT enabled. Dozzle is a log viewer;
+      # enabling them turns it into a remote control for every connected Docker
+      # daemon, duplicates `docker compose` from the host shell where the repo
+      # is source of truth (D9), and is premature while auth is unsolved.
+    ports:
+      # Dozzle listens on 8080 INTERNALLY, not 8888.
+      - '8888:8080'
+    volumes:
+      # Without /data, users and settings are lost on every recreate.
+      - ${APPDATA_DIR}/monitor/dozzle:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped

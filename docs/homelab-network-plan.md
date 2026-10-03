@@ -95,7 +95,9 @@ See [DECISIONS.md](./DECISIONS.md) D24.
 | `10.0.0.32` | `dns2` (CT 201) — Pi-hole replica | Hestia | **Live** |
 | **`10.0.0.33`** | **DNS VIP** (keepalived VRRP) | floating | **Live** |
 | `10.0.0.34` | `monitor` (CT 202) | Hestia | **Live** |
-| `.35–.59` | unassigned | | |
+| `10.0.0.35` | `arr` (CT 300) | Themis | **Live** |
+| `10.0.0.36` | `grab` (CT 301) | Themis | **Live** |
+| `.37–.59` | unassigned | | |
 
 `.60–.99` remains free for non-LXC services.
 
@@ -220,10 +222,14 @@ nebula-sync replicates primary → replica hourly. See
 [DECISIONS.md](./DECISIONS.md) D27, [build-record.md](./build-record.md), and the
 configs in [`infra/dns/`](../infra/dns/).
 
-**Clients are to be forced through Pi-hole using CRS310 NAT rules** — those rules
-are **still unbuilt**, and their absence was demonstrated during the cutover when
-a Mac with a manual `1.1.1.1` bypassed Pi-hole entirely. See
-[DECISIONS.md](./DECISIONS.md) D20.
+**Clients are to be forced through Pi-hole by an ER605 block rule** — deny
+LAN → WAN TCP/UDP 53 and 853 from every source except `.31` and `.32`. Enforcement
+lives on the **router, not the switch**, because it is firewall policy; and it
+**blocks rather than redirects**, so a misconfigured client fails loudly. See
+[DECISIONS.md](./DECISIONS.md) D20 and D31.
+
+The rule is **still unbuilt**, and its absence was demonstrated during the
+cutover when a Mac with a manual `1.1.1.1` bypassed Pi-hole entirely.
 
 > **DNS emergency rollback: set the ER605's Primary DNS back to `10.0.0.1`.**
 > The router answers regardless of Pi-hole's state.
@@ -377,7 +383,7 @@ App-state backup rules in full: [DECISIONS.md](./DECISIONS.md) D12.
 backups. A backup that has never been restored is still an assumption.
 
 Nothing lives off Tartarus yet — see
-[OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md#nothing-lives-off-tartarus-yet).
+[OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md#backup-off-box).
 
 ---
 

@@ -53,15 +53,32 @@ Expected paths:
 /mnt/tartarus/ixion
 ```
 
-Recommended subdirectories for `sisyphus`:
+Subdirectories for `sisyphus` — plain directories inside one dataset, **not**
+child ZFS datasets:
 
 ```text
-/mnt/tartarus/sisyphus/downloads
-/mnt/tartarus/sisyphus/media
-/mnt/tartarus/sisyphus/shared
+downloads/
+├── torrents/   complete/<category>, watch/, 00-myanonymouse/ (MAM seeds)
+├── usenet/     complete/{movies,tv,music,software}, watch/
+├── direct/     jdownloader/, metube/     (anything not torrent or Usenet)
+└── complete/   manual-sort leftovers — outside every pipeline
+media/
+├── audio/      audiobooks/, music/, playlists/, podcasts/, projects/,
+│               radio shows/, ingest/ (abs-arr inbox), temp/ (music staging)
+├── docs/       books/, comics/, manga/, ingest/{books,comics}, temp/
+├── misc/       ROMs/, tutorials/, temp/, PowerGrades
+└── video/      movies/, tv/, channels/, misc/, temp/
+shared/
 ```
 
-These are plain directories inside one dataset, not child ZFS datasets.
+The reasoning behind several of these — why `direct/` is named for what it is
+rather than the tool, why manga stays split from comics, why `video/uhd` was
+removed, why `audio/temp` sits *outside* `audio/music`, and why each app gets its
+own ingest folder — is in [DECISIONS.md](./DECISIONS.md) D33.
+
+**Incomplete downloads are not here at all.** They live on the `themis-500` HDD
+scratch pool, with per-client subfolders. `usenet/incomplete` and
+`torrents/incomplete` on the NAS are legacy leftovers.
 
 > **There is deliberately no `appdata/` here.** Runtime config and databases live
 > on **node-local ZFS**, never on NFS — see [DECISIONS.md](./DECISIONS.md) D11.

@@ -338,6 +338,11 @@ services individually, pass 2 pressure-tested each grouping. The result is
 
 ### D17 — No VPN: gluetun and the killswitch design are removed
 
+> **Partially reversed by [D30](#d30--one-vpn-instance-two-qbittorrents) (2026-10-03).**
+> The premise below — "nothing here needs IP concealment" — does not hold for
+> arr-driven grabs from **public** trackers. A second, VPN-only qBittorrent is
+> added; **this instance stays VPN-free**, and that remains deliberate.
+
 gluetun is deleted. **qBittorrent becomes an ordinary container with its own IP
 and port.**
 
@@ -393,7 +398,11 @@ database and the media filesystem protected.
 
 ### D20 — Force all DNS through Pi-hole; never list a public resolver as secondary
 
-Clients are forced through Pi-hole using **CRS310 NAT rules**.
+> **Mechanism changed by [D31](#d31--dns-enforcement-lives-on-the-er605-and-blocks-rather-than-redirects)
+> (2026-10-03):** enforcement moved from CRS310 NAT to an **ER605 block rule**.
+> The rule below that a public secondary is never listed is unchanged.
+
+Clients are forced through Pi-hole.
 
 > **Never list a public resolver as secondary DNS in DHCP.**
 
@@ -446,6 +455,10 @@ SSD wear, and the data is disposable.
 
 ### D22 — Service layer: 11 LXCs + 1 VM, grouped by failure domain
 
+> **Count superseded by [D34](#d34--the-plan-is-12-lxcs-not-11) (2026-10-03)** —
+> `dns2` was added after this was written, so the plan is **12 LXCs**. The
+> grouping principle below is unchanged.
+
 The full map, with per-service build notes and the grouping rationale, is
 [service-architecture.md](./service-architecture.md). The governing principle:
 
@@ -495,7 +508,7 @@ does **not** protect against a bad Reclaimerr rule, because the deletion
 propagates to the backup. Enabling scheduled deletion before the off-box copy
 exists would make a single misconfigured rule unrecoverable.
 
-This makes [off-box backup](./OPEN-QUESTIONS.md#nothing-lives-off-tartarus-yet)
+This makes [off-box backup](./OPEN-QUESTIONS.md#backup-off-box)
 a gating dependency rather than a nice-to-have.
 
 ---
@@ -518,12 +531,17 @@ Guests take statics from **`.30–.59`**, set in the container config
 | `10.0.0.32` | Hestia | `dns2` (CT 201) — Pi-hole **replica** |
 | `10.0.0.33` | **floating** | **DNS VIP** (keepalived VRRP) — what DHCP advertises |
 | `10.0.0.34` | Hestia | `monitor` (CT 202) |
-| `.35–.59` | | unassigned |
+| `10.0.0.35` | Themis | `arr` (CT 300) |
+| `10.0.0.36` | Themis | `grab` (CT 301) |
+| `.37–.59` | | unassigned |
 
 > **CT ID numbering is undefined**, and the current IDs grew by node (1xx Rhea,
 > 2xx Hestia) — which puts the DNS pair in different ranges (`dns` is 100,
 > `dns2` is 201) even though the pair is one logical unit deliberately split
-> across nodes. Not renumbered;
+> across nodes. **`arr` = 300 and `grab` = 301 were chosen because they fit
+> *both* candidate schemes** (node-based: Themis = 3xx; service-based:
+> arr/grab = 3xx), so they defer the decision rather than compound it.
+> Not renumbered;
 > [recorded as open](./OPEN-QUESTIONS.md#ct-id-numbering-scheme) so the
 > remaining six LXCs do not compound it.
 
@@ -671,3 +689,167 @@ the Dozzle agent is currently unauthenticated on the LAN.
 **Agent mode is both the topology and the security answer** for reaching other
 nodes' daemons — and note an agent **cannot** sit behind a socket-proxy, so
 agents are the mechanism rather than a workaround.
+
+---
+
+## 2026-10-03
+
+Context: **the Themis half of the media pipeline is built.** `arr` (CT 300) and
+`grab` (CT 301) are live, taking the lab to **six of twelve LXCs**. The share
+was reorganised, and the no-VPN decision is partially reversed. See
+[build-record.md](./build-record.md).
+
+### D30 — One VPN instance: two qBittorrents
+
+[D17](#d17--no-vpn-gluetun-and-the-killswitch-design-are-removed) dropped gluetun
+on the premise that nothing here needs IP concealment. **That premise does not
+hold for arr-driven grabs from public trackers**, so the decision is reversed
+**for one new instance only**.
+
+| Instance | Used by | Network | Seeding |
+|---|---|---|---|
+| `qbittorrent` (**built**) | owner, **abs-arr** (MyAnonymouse) | own connection, 6881 forwarded on the ER605 | unlimited, permanent |
+| `qbittorrent-vpn` (**to build**) | Radarr, Sonarr — public trackers only | **only** via gluetun, kill switch | limited by ratio/time, then removed |
+
+**abs-arr stays on the VPN-free instance.** MyAnonymouse wants long-term,
+connectable seeding and ties the account to the IPs you seed from — a rotating
+VPN exit is actively wrong there.
+
+**Provider: Proton VPN Plus, WireGuard.** Chosen because gluetun's native
+automatic port forwarding (`VPN_PORT_FORWARDING=on`) works with **Proton and PIA
+only** — Mullvad dropped port forwarding in 2023. Proton assigns a *random*
+forwarded port, so a helper must push it into qBittorrent's listening port.
+
+Build requirements: `/dev/net/tun` passed into CT 301, `NET_ADMIN` on gluetun,
+`network_mode: "service:gluetun"` on qbittorrent-vpn (its Web UI port is
+published on gluetun), the same `/data` mount for hardlinks, its own incomplete
+folder. **Verify the kill switch** by stopping gluetun and confirming
+qbittorrent-vpn loses connectivity.
+
+The per-downloader analysis still holds for everything else: **SABnzbd,
+JDownloader and MeTube neither need nor benefit from a VPN.**
+
+> **Guide-reading rule, narrowed.** "Skip the gluetun sections" now applies only
+> to the **VPN-free** `qbittorrent`. **Watchtower stays dropped everywhere.**
+
+### D31 — DNS enforcement lives on the ER605, and blocks rather than redirects
+
+Enforcement moves from the CRS310 to the **ER605**, as a **block**, not a
+redirect: **deny LAN → WAN TCP/UDP 53 and 853 from every source except
+`10.0.0.31` and `10.0.0.32`** (each Pi-hole's unbound queries root servers
+directly).
+
+**Why the ER605 and not the switch.** Rules about which resolvers clients may use
+are **firewall policy**, and [D15](#d15--network-core-mikrotik-crs310-router-on-a-stick)
+puts firewalling on the ER605. Filtering on the CRS310 would mean pushing all
+bridged traffic through its CPU and giving up hardware switching — the same
+speed-versus-filtering trade-off D15 already rejected. Every client's internet
+traffic crosses the ER605 anyway, so **one rule there covers wired and wireless
+alike**, and once VLANs exist the IoT/Guest DNS rules sit beside the inter-VLAN
+rules.
+
+**Why block, not redirect.** A client with a hard-coded resolver then **fails
+loudly** instead of silently bypassing Pi-hole — better for a lab where
+misconfiguration should surface. The ER605's NAT is built for inbound port
+forwarding and probably cannot do LAN-side DNS redirection anyway.
+
+Unaffected: the ER605's own upstream lookups originate on the router, and
+`monitor` talks only to `10.0.0.1`, which never leaves the LAN.
+
+> **DNS over HTTPS (443) is out of scope.** It cannot be blocked by port. Pi-hole
+> blocks Firefox's canary domain by default; other DoH clients are not covered.
+
+Still unbuilt — and its absence is demonstrated: during the first cutover a Mac
+with a manual `1.1.1.1` bypassed Pi-hole entirely.
+
+### D32 — Container paths: `/data` inside, least privilege outside
+
+Extends [D21](#d21--the-download-flow-is-load-bearing) and
+[D25](#d25--the-shared-nfs-path-string-is-mntsisyphus-everywhere).
+
+**Inside Docker containers the shared path is `/data`.** Every container that
+must hardlink — Radarr, Sonarr, SABnzbd, abs-arr, both qBittorrents — mounts
+`/mnt/sisyphus:/data` as **one bind**, so a path reported by a download client
+exists unchanged in the importer and **no remote path mappings are needed**.
+
+**Least privilege for everything else:**
+
+| Service | Mounts |
+|---|---|
+| Bazarr, Audiobookshelf | only `/mnt/sisyphus/media:/data/media` |
+| JDownloader, MeTube | only their own `downloads/direct/<app>` folder |
+| Prowlarr, Byparr, Recyclarr, Reclaimerr | **no media at all** |
+
+**Incomplete downloads** live on the HDD scratch pool with **per-client
+subfolders**, bind-mounted as `/mnt/incomplete` in both `arr` and `grab`:
+`incomplete/sabnzbd`, `incomplete/qbittorrent`, `incomplete/qbittorrent-vpn`.
+
+**Usenet imports are moves; torrent imports are hardlinks.** A link count of 1
+after a Usenet import is **correct** — Radarr renames the file on one filesystem
+and SAB's job is removed, because Usenet has nothing to seed. The link-count-2
+check applies only to torrents that keep seeding.
+
+**Writing to sisyphus by hand:** root is restricted on the share (no maproot), so
+manual moves and mkdirs run as 3004:
+
+```bash
+setpriv --reuid=3004 --regid=3004 --clear-groups <cmd>
+```
+
+which also gets ownership right.
+
+### D33 — `sisyphus` layout
+
+```text
+sisyphus/
+├── downloads/
+│   ├── torrents/   complete/<category>, watch/, 00-myanonymouse/ (MAM seeds)
+│   ├── usenet/     complete/{movies,tv,music,software}, watch/
+│   ├── direct/     jdownloader/, metube/     (anything not torrent or Usenet)
+│   └── complete/   manual-sort leftovers from the old setup — outside every pipeline
+├── media/
+│   ├── audio/      audiobooks/, music/, playlists/, podcasts/, projects/,
+│   │               radio shows/, ingest/ (abs-arr inbox), temp/ (music staging)
+│   ├── docs/       books/, comics/, manga/, ingest/{books,comics}, temp/
+│   ├── misc/       ROMs/, tutorials/, temp/, PowerGrades
+│   └── video/      movies/, tv/, channels/, misc/, temp/
+└── shared/
+```
+
+The reasoning, because several of these look arbitrary:
+
+- **`direct/` is named for what it is, not the tool** that fills it — it was
+  `jdownloader/`, which would have had to be renamed every time the tool changed.
+- **`comix/` + `graphix/` merged into `docs/comics/`** — that split was drift.
+  **Manga stays separate**: right-to-left reading and different metadata.
+- **`video/uhd` removed — 4K films share `video/movies` with 1080p**, and the
+  quality profile decides per film. One root folder per app is what lets Radarr
+  pick per title.
+- **`audio/temp` sits outside `audio/music` on purpose** — Navidrome scans
+  `audio/music`, so staging material must not be inside it.
+- **One ingest folder per app.** Two apps watching one folder fight over it: a
+  book app will happily grab a `.cbz` and delete what it processed.
+- Typos fixed: `torrrents/` merged into `torrents/`, `video/mixc` → `video/misc`.
+- Top-level `downloads/incomplete/` removed — incomplete lives on `themis-500`.
+
+`usenet/incomplete` and `torrents/incomplete` on the NAS are **legacy**; clear
+them once nothing references them.
+
+### D34 — The plan is 12 LXCs, not 11
+
+Supersedes the count in
+[D22](#d22--service-layer-11-lxcs--1-vm-grouped-by-failure-domain) — the
+grouping principle is unchanged, but `dns2` was added after that decision was
+written.
+
+| Node | LXCs |
+|---|---|
+| **Rhea** (4) | `dns`, `proxy`, `tailscale`, `omada` |
+| **Hestia** (5) | `media`, `dns2`, `monitor`, `apps`, `immich` |
+| **Themis** (3) | `arr`, `grab`, `sandbox` |
+
+Plus the **Home Assistant VM**. Six LXCs are built.
+
+**Cross-LXC wiring is by IP:** `arr` reaches qBittorrent at `10.0.0.36:8080`;
+Reclaimerr reaches Plex and Jellyfin at `10.0.0.30`. Within an LXC, by container
+name.

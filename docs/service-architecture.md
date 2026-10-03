@@ -1,6 +1,6 @@
 # Service Architecture
 
-The deployment map: **11 LXCs + 1 VM**, grouped by failure domain.
+The deployment map: **12 LXCs + 1 VM**, grouped by failure domain.
 
 Two full passes produced this. Pass 1 walked all ~46 services one by one
 (keep / drop / replace). Pass 2 pressure-tested each *grouping* against 2026
@@ -10,11 +10,15 @@ shape below is deliberate rather than inherited.
 Related: [DECISIONS.md](./DECISIONS.md) · [OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md) ·
 [hardware-inventory.md](./hardware-inventory.md)
 
-> **Build status: 5 of 11 LXCs live** — `media`, `dns`, `dns2`, `monitor`, plus
-> the keepalived DNS VIP. **The DNS single point of failure is closed.** What was
-> built and how it was verified: [build-record.md](./build-record.md). **Read
+> **Build status: 6 of 12 LXCs live** — `media`, `dns`, `dns2`, `monitor`, `arr`,
+> `grab`, plus the keepalived DNS VIP. **The DNS single point of failure is
+> closed.** What was built and how it was verified:
+> [build-record.md](./build-record.md). **Read
 > [build-gotchas.md](./build-gotchas.md) before building the next one**, and
 > [update-discipline.md](./update-discipline.md) before upgrading anything.
+>
+> Remaining: `sandbox` (Themis), `proxy` / `tailscale` / `omada` (Rhea), `apps` /
+> `immich` (Hestia), plus the Home Assistant VM.
 
 ---
 
@@ -245,11 +249,11 @@ Bazarr and the media servers only ever need the media path, never downloads.
 | radarr, sonarr | **Mount storage as a SINGLE unified root.** Split mounts break atomic moves and hardlinks |
 | bazarr | Core only. Whisper AI subtitles **deferred** — wants a GPU, and Themis's UHD 630 is not passed into `arr` |
 | byparr | Drop-in FlareSolverr replacement — same API, same port 8191. **Still add it in Prowlarr as a "FlareSolverr" proxy type.** Heaviest thing in the LXC while solving. Solvearr is the lightweight fallback |
-| sabnzbd | Requires a paid Usenet provider |
-| abs-arr | Own project, private ghcr image. Port 8788 |
+| sabnzbd | Requires a paid Usenet provider — four configured and tested |
+| abs-arr | Own project, private ghcr image. Port 8788. **Torrent-only as of 0.2.1** |
 | audiobookshelf | Used daily. **Lives here, not in `media`** — see below |
 | reclaimerr | **The only tool in the stack that permanently deletes media** |
-| **recyclarr** | Syncs TRaSH Guides quality profiles and custom formats into Radarr and Sonarr |
+| **recyclarr** | Syncs TRaSH Guides quality profiles and custom formats into Radarr and Sonarr. **Long-lived**, with its own cron |
 
 **sabnzbd build order** — its #1 failure mode is category-path mismatch, and
 living in the same LXC as the arrs is what makes paths line up:
@@ -278,10 +282,17 @@ bookmarks.
 > Scheduled deletion stays **OFF** until a genuine off-box backup exists.
 > Restic-to-Tartarus is on-box and does not protect against a bad rule.
 
-**recyclarr is not a long-running container** — it is a scheduled sync job that
-exits, so it has zero idle cost: `ghcr.io/recyclarr/recyclarr:latest sync`,
-config from trash-guides.info. It prevents profile drift that silently degrades
-releases or wastes storage.
+**recyclarr runs long-lived with its built-in cron** (`CRON_SCHEDULE=@daily`) —
+not, as earlier notes said, a job that exits. It prevents profile drift that
+silently degrades releases or wastes storage.
+
+**One merged config file per app.** Recyclarr loads every file in `configs/`, so
+several files aimed at the same Radarr conflict. Configs are in
+[`stacks/arr/recyclarr-configs/`](../stacks/arr/recyclarr-configs/);
+`secrets.yml` is never committed.
+
+**4K and 1080p share one root folder per app** — the quality profile decides per
+title, which is why `video/uhd` was removed from the share.
 
 Dropped here: **lidarr** (metadata provider problems; the 2026 pattern needs
 Lidarr + slskd + Soularr, and slskd exposes IP P2P), whisparr, kapowarr, linkarr,
@@ -295,7 +306,9 @@ get right here**, which is why it tolerates being the loosest grouping in the la
 
 | Service | Notes |
 |---|---|
-| qbittorrent + **VueTorrent** | 2026 consensus client. Its **category system maps cleanly to arr categories** — Deluge needs a Label plugin. VueTorrent is a Vue.js reskin **enabled inside qBittorrent**, not an extra service |
+| qbittorrent (**VPN-free**) | Owner + abs-arr (MyAnonymouse). Permanent unlimited seeding, 6881 forwarded. Its **category system maps cleanly to arr categories** — Deluge needs a Label plugin |
+| **qbittorrent-vpn** + gluetun | **Not yet built.** Radarr/Sonarr public-tracker grabs only, behind a kill switch — [D30](./DECISIONS.md) |
+| **VueTorrent** | A Vue.js reskin **enabled inside qBittorrent**, not an extra service. Installed from a release zip, so it never self-updates |
 | jdownloader | Miscellaneous web downloads, deliberately outside the media pipeline — **no hardlink flow, no shared sisyphus path needed** |
 | metube | yt-dlp web UI. Occasional paste, not auto-archiving |
 
@@ -312,7 +325,13 @@ thing.
 
 > **Completed torrents must land on the shared `sisyphus` path mounted at an
 > IDENTICAL path string in both `grab` and `arr`, or hardlinks fail.**
+> `/mnt/sisyphus` on the LXC, **`/data` inside containers** ([D32](./DECISIONS.md)).
 > **Mount first, then wire.**
+
+**Two qBittorrents by design** ([D30](./DECISIONS.md)). The VPN-free instance is
+a **considered divergence** from every arr guide, not an oversight: MyAnonymouse
+ties the account to the IPs you seed from and wants long-term connectable
+seeding. Public-tracker grabs get the VPN instance instead.
 
 ### `sandbox` (Docker) ~2 GB — staged by TRUST LEVEL, not by function
 
@@ -409,10 +428,11 @@ and `apollo` survive as `grab`, `arr` and `media`.
 | `media` | Hestia | **`media/` — the live compose** | aggregarr |
 | `monitor` | Hestia | **`monitor/` — the live compose** | — |
 | `dns`, `dns2` | Rhea, Hestia | **`infra/dns/` — native configs** | — |
+| `arr` | Themis | **`arr/` — the live compose** | — |
+| `grab` | Themis | **`grab/` — the live compose** | gluetun, qbittorrent-vpn |
 | `apps` | Hestia | `aeos/*`, `hera/pairdrop`, `helios/{opengist,stirling-pdf,tracktor,shipshipship,listinglab}`, `io/immich-drop` | nextexplorer, tandoor, kitchenowl, paperless-ngx, immich public proxy |
 | `immich` | Hestia | — | all four containers |
-| `arr` | Themis | `asteria/{prowlarr,radarr,sonarr,bazarr}`, `io/sabnzbd` | byparr, abs-arr, audiobookshelf, reclaimerr, recyclarr |
-| `grab` | Themis | `io/{qbittorrent,jdownloader,metube}` | — |
+
 | `sandbox` | Themis | `aeos/changedetection`, `helios/grocy` | comet-editor |
 | `homeassistant` | Themis | — (VM) | — |
 

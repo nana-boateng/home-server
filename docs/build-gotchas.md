@@ -32,7 +32,9 @@ docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.version" }}
 | `binwiederhier/ntfy` | no label — `docker run --rm <img> --version` |
 
 **And the reported version is not always the tag.** ntfy reports `2.28.0` while
-the tag is `v2.28.0`.
+the tag is `v2.28.0`. Likewise **Beszel, Navidrome, Audiobookshelf and Recyclarr
+Git tags carry a `v` their image tags do not** — if a pull of the Git tag fails,
+try it without the `v`.
 
 This applies to install procedures too, not only tags. The Pi-hole and Docker
 install steps both differed from what the guides said.
@@ -332,3 +334,173 @@ container reports that container's slice rather than the host.
 Expect `no valid SMART data found`: the sandboxed agent lacks the privileges.
 And check which device it picked for root I/O — on Rhea and Hestia it guessed
 `sda` on NVMe-booting machines, making those figures misleading.
+
+---
+
+## `:latest` can lag a whole major version
+
+Uptime Kuma's `:latest` gave **`1.23.17` while `2.5.0` was the current
+release** — most likely kept on 1.x deliberately so existing installs don't hit a
+database migration on their next pull.
+
+**Reading the version off a `:latest` image only tells you what `:latest` points
+to, not what is newest.** When the image and the releases page disagree, **the
+releases page wins**: find the right tag, and treat a major-version jump as a
+**migration** ([update-discipline.md](./update-discipline.md)), not an ordinary
+pull.
+
+Check every pin before building on it:
+
+```bash
+scripts/check-versions.sh            # all stacks
+scripts/check-versions.sh arr grab   # just those
+```
+
+Notes on that script: `releases/latest` skips pre-releases; an empty "latest"
+means no formal GitHub releases or the unauthenticated rate limit (60/hour, set
+`GITHUB_TOKEN` to raise it). **For linuxserver images, a higher `-lsNN` with the
+same app version is a rebuild of the same app, not a new release.**
+
+---
+
+## GPU device group in an idmapped LXC
+
+linuxserver images normally add `abc` to the GPU device's group at startup.
+**Inside an idmapped unprivileged LXC this does not happen**, so `abc` (3004)
+could not open `renderD128` owned by group 992 — it could see the device but not
+open it.
+
+**Pass the device with `gid=3004` instead**, matching the UID every service in
+the stack runs as.
+
+Diagnose with:
+
+```bash
+docker exec <svc> id abc
+docker exec <svc> ls -ln /dev/dri
+```
+
+> **A root-run `vainfo` succeeding proves nothing** about what the service user
+> can open. That is exactly why this survived the original verification.
+
+---
+
+## Plex: settings hidden, and applied late
+
+The transcoder temporary directory and the hardware-acceleration checkboxes only
+appear under **Show Advanced** on Settings → Transcoder.
+
+**Changes apply to NEW playback sessions only** — an already-running transcode
+keeps its old path and mode, so a test that looks like a failure may just be a
+stale session.
+
+Confirm what Plex actually did from **its log**, not from a dashboard:
+
+```bash
+grep -i "hardware transcoding" \
+  "/config/Library/Application Support/Plex Media Server/Logs/Plex Media Server.log" | tail
+```
+
+Empty `final decoder` / `final encoder` fields mean **software fallback**.
+
+---
+
+## Restored app configs carry the old setup's paths AND ports
+
+The SABnzbd backup restored a web port of **7777** while compose mapped 8080, and
+every path pointed at the old `/downloads/...` layout — which surfaced as
+`Permission denied: '/downloads'`.
+
+**After any restore, grep the config for the port and every path before trusting
+it.**
+
+### Editing an app's ini with `sed`: match exactly, then chown
+
+SAB's ini has a `port =` line for the web UI **and one per news server**
+(`port = 563`), so a loose pattern rewrites them all. Match the full old value:
+
+```bash
+sed -i -E 's/^port = 7777$/port = 8080/' sabnzbd.ini
+chown 3004:3004 sabnzbd.ini      # every time
+```
+
+**`sed -i` run as root writes a new root-owned file**, which the app (running as
+3004) then cannot save.
+
+---
+
+## `docker compose logs --tail N` includes the previous run
+
+Right after a restart, the tail can be the **old** run's errors and shutdown
+messages. Use `--since 2m`, or check timestamps, before concluding a fix failed.
+
+---
+
+## Root can't write freely on sisyphus — use `setpriv`
+
+The share has **no maproot**, so manual `mkdir`/`mv`/`rm` from an LXC shell must
+run as 3004:
+
+```bash
+setpriv --reuid=3004 --regid=3004 --clear-groups <cmd>
+```
+
+Prefer **`mv -n`** (never overwrites) and **`rmdir`** (fails on non-empty), so an
+unexpected file stops the chain instead of being silently lost. Preview deletes
+with `find ... -print` before `-exec rm -rf {} +`.
+
+### `.DS_Store` breaks folder merges
+
+Globs (`dir/*`) **skip dotfiles**, so a macOS `.DS_Store` left behind makes the
+following `rmdir` fail and stops the chain. Delete it first.
+
+To stop the Mac creating them on shares:
+
+```bash
+defaults write com.apple.desktopservices DSDontWriteNetworkStores -bool true
+# then log out
+```
+
+---
+
+## Usenet imports are moves, not hardlinks
+
+**A link count of 1 after a Usenet import is correct.** Radarr *moves* the file —
+an instant rename on one filesystem — and SAB's job is removed, because Usenet
+has nothing to seed.
+
+The hardlink check (link count **2** on both copies) applies **only to torrents
+that keep seeding.** Do not debug a working Usenet import against the wrong
+expectation.
+
+---
+
+## Recyclarr: one config file per instance
+
+`config create -t` writes **one file per template**, and **Recyclarr loads every
+file in `configs/`** — so several files aimed at the same Radarr conflict.
+
+Generate the templates, move them to `templates/`, and write **one merged file
+per app** listing every profile `trash_id`. Default CF groups attach to the right
+profiles automatically from TRaSH data; **optional groups need
+`assign_scores_to`.**
+
+Always `sync <app> --preview` first, and **check the scores are non-zero.**
+
+---
+
+## ghcr.io needs a CLASSIC PAT
+
+**Fine-grained tokens cannot be granted package access.** Use a classic token
+with **only `read:packages`**, and keep it out of shell history:
+
+```bash
+read -s GHCR_PAT
+echo "$GHCR_PAT" | docker login ghcr.io -u <user> --password-stdin
+```
+
+Docker stores it **base64-encoded, not encrypted**, in
+`/root/.docker/config.json`.
+
+> **Note the expiry date.** When it lapses, running containers keep working but
+> **the next pull fails** — which looks like a registry outage.

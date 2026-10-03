@@ -6,79 +6,159 @@ Raised, reasoned through, and **not ratified**. Nothing here is implemented.
 is settled, move it to [DECISIONS.md](./DECISIONS.md) with its rationale and
 delete it here — this file should shrink as the design firms up.
 
-Last reviewed: **2026-10-04**.
+Last reviewed: **2026-10-03**.
+
+---
+
+## Next build steps, in order
+
+### 1. Reboot Themis at a quiet time
+
+Nothing downloading in SAB. Then **confirm `/mnt/sisyphus` mounted before
+`arr`/`grab` started** — the ordering hazard below. Afterwards check
+`iptables -S FORWARD` shows `-P FORWARD ACCEPT`.
+
+### 2. Proton VPN Plus → gluetun + `qbittorrent-vpn`
+
+[D30](./DECISIONS.md). `/dev/net/tun` passthrough to CT 301, WireGuard,
+`VPN_PORT_FORWARDING=on` **plus a helper that pushes the forwarded port into
+qBittorrent** (Proton assigns a random one), own incomplete folder, limited
+seeding, and a **kill-switch test**: stop gluetun, confirm connectivity is gone.
+
+Then connect Radarr (`movies`) and Sonarr (`tv`) to it.
+
+### 3. Torrent hardlink test
+
+After the first torrent import through `qbittorrent-vpn`, **both copies must
+show link count 2.** This is the one check that proves the shared-path design
+works; the Usenet path cannot prove it, because Usenet imports are moves.
+
+### 4. Re-add the MyAnonymouse torrents
+
+To the **VPN-free** `qbittorrent`. Download the `.torrent` files from the MAM
+account, add with the save path pointing at the existing data in
+`torrents/00-myanonymouse`, **leave "Skip hash check" unticked** so it rechecks,
+confirm seeding.
+
+> **Seeding time is accruing as downtime until this is done** — `grab` was built
+> from scratch, so none of the 154 seeds survived.
+
+### 5. VueTorrent
+
+Install from the release zip, set as the alternative Web UI, **and record the
+version** — it never self-updates.
+
+### 6. abs-arr: bug adding qBittorrent as a download client
+
+Own project; fix pending. **Until it is fixed abs-arr cannot download**;
+everything else in it works.
 
 ---
 
 ## Small items inside what is already built
 
-Each of these is a loose end in a live LXC, not an architectural question.
+### Hardware transcoding fails — PARKED
 
-### `media` resolv.conf still points at `10.0.0.1`
+After the `gid=3004` fix, **Plex can open the device, but changing playback
+quality freezes and then falls back to direct play.** HW acceleration stays
+unticked; software transcoding works.
 
-It was built before `dns` existed. `media` is an ordinary client and should use
-the VIP; only `monitor` keeps the bypass.
+**Parked deliberately until the rest of the lab is built.** Next steps when
+picked up:
 
-```bash
-pct set 200 --nameserver 10.0.0.33   # then restart
-```
+1. Tail Plex's log while reproducing:
+   ```bash
+   pct exec 200 -- docker exec plex tail -f \
+     "/config/Library/Application Support/Plex Media Server/Logs/Plex Media Server.log" \
+     | grep -iE "transcod|vaapi|error"
+   ```
+2. On the Hestia **host**: `dmesg | grep -iE "huc|guc"`. Jasper Lake encodes only
+   via the low-power encoder, which needs **HuC firmware**; the fix would be a
+   host `i915` option plus a Hestia reboot — which briefly takes `dns2` and
+   `monitor` down (the VIP stays on Rhea).
+3. **Cross-check with Jellyfin.** If Jellyfin hardware-transcodes and Plex does
+   not, it is Plex's bundled driver, not the passthrough.
 
-### Hardware transcoding is still OFF inside Plex and Jellyfin
+### Jellyfin transcode settings and tmpfs resize
 
-**The passthrough is verified but inert until enabled in each app's own
-settings.** Encode and decode both work at the `vainfo` level — nothing is using
-them.
+Parked with the above: transcode path `/transcode`, **Throttle transcodes** and
+**Delete segments** (without those two Jellyfin keeps every segment for the whole
+session). Measure with `df -h /transcode`, then **resize both tmpfs mounts to
+~1 GB**.
 
-- **Jellyfin:** Dashboard → Playback → Transcoding → VA-API,
-  `/dev/dri/renderD128`; enable H.264 / HEVC / VP9, **leave AV1 off**.
-- **Plex:** Settings → Transcoder → enable hardware transcoding, temporary
-  directory `/transcode`.
+### Jellyfin `12.1ubu2604-ls51`
 
-Confirm with a forced transcode — **Tautulli shows the decision.**
+A linuxserver rebuild of the same app version. Pull during a quiet window.
 
-### Remaining `.lan` records
+### wud only watches `monitor`'s Docker daemon
 
-Only **`plex.lan`** exists. Still to add, all on the **primary** (`10.0.0.31`) —
-never the replica:
+So **`media`, `arr` and `grab` get no update notifications at all.** Fix with a
+read-only socket-proxy per Docker LXC that wud connects to, or one wud per LXC.
 
-| Record | Target |
-|---|---|
-| jellyfin, tautulli, navidrome, posterizarr | `10.0.0.30` |
-| `pihole.lan` | `10.0.0.33` — follows the VIP |
-| rhea / themis / hestia / tartarus | `.10` / `.11` / `.12` / `.20` |
+Until then, `scripts/check-versions.sh` is the stopgap.
 
-### Beszel `FILESYSTEM` override on Rhea and Hestia
+### SAB tidy-up
 
-Both agents report **`sda`** for root I/O despite booting from **NVMe**, so
-their disk figures are misleading. Themis correctly detected `nvme0n1`.
+- **Move or delete the backup zip from `usenet/complete`** — it contains provider
+  passwords.
+- Clear the stale server expiry dates (the "expiring in -310 days" warnings).
+- Clear legacy `usenet/incomplete` and `torrents/incomplete` on the NAS.
 
-Fix by setting `FILESYSTEM` in `/etc/systemd/system/beszel-agent.service`.
+### Manual sorting
 
-`no valid SMART data found` is expected and separate — the sandboxed agent lacks
-the privileges.
+- **`downloads/complete`** — epubs → `docs/books`, comics → `docs/comics`,
+  `.m4b`/audiobook folders → `audio/ingest` or `audio/audiobooks`.
+- **`media/audio/temp`** — 15 music releases, some duplicated with a `.1`
+  suffix → `audio/music`.
 
-### Uptime Kuma off-Hestia notification path
+Both are outside every pipeline, so nothing will do it for you. Use `setpriv` as
+3004, `mv -n`, and `rmdir`.
 
-**This is the piece that makes the monitoring layer meaningful.** Kuma *and* ntfy
-both live on Hestia, so a Hestia failure kills the alert and the alerting system
-together.
+### GitHub PAT expiry
 
-Kuma needs a second channel that **leaves the network entirely** — email,
-Discord, Pushover — with ntfy kept as the everyday hub.
+**Record the date** of the classic `read:packages` token used by `arr`. When it
+lapses, running containers keep working but **the next pull fails**.
+
+### Recyclarr optional groups
+
+DV Boost / HDR10+ Boost (only if the TV supports them) and Movie Versions. Off
+until decided.
+
+Also: the `[Audio] Audio Formats` `trash_ids` are **not** in the repo config —
+they are opaque hashes that cannot be verified from here. Copy them from the live
+config or TRaSH.
+
+### Library Import
+
+Confirm all ~58 films and 17 series are imported with profiles set, and the stock
+quality profiles deleted.
 
 ---
 
 ## Architectural
 
-### Clients are not forced through Pi-hole
+### The book app is unchosen
 
-The **CRS310 NAT rules** from [D20](./DECISIONS.md) are **unbuilt, and their
-absence has been demonstrated**: during the first cutover, a Mac with `1.1.1.1`
-set manually bypassed Pi-hole entirely. `dig` against the Pi-hole IP looked
-perfect while ordinary resolution never touched it.
+**Not in the service map at all.** It will watch `media/docs/ingest/books` and
+needs an LXC placement — likely `apps` or `sandbox`.
 
-Until the NAT rules exist, any client with a manual resolver silently opts out of
-filtering and split-horizon both.
+### Pi-hole enforcement rule on the ER605
+
+[D31](./DECISIONS.md): deny LAN → WAN TCP/UDP 53 and 853 except from `.31`/`.32`.
+**Unbuilt, and its absence is demonstrated** — a Mac with a manual `1.1.1.1`
+bypassed Pi-hole entirely during the first cutover.
+
+Confirm the ER605's rule UI at build time. **Redirect is not the design** — a
+blocked client should fail loudly.
+
+### Hestia-down blind spot in monitoring
+
+**Kuma cannot report its own host's death.** Kuma and its notification sender
+both run on Hestia, so if Hestia dies nothing alerts — **Telegram included**.
+
+An **external dead-man's switch** would close it: something outside the network
+that expects regular heartbeats from Kuma and alerts when they stop, e.g.
+Healthchecks.io's free tier.
 
 ### Unified auth layer
 
@@ -89,48 +169,66 @@ Currently **unauthenticated on the LAN**:
 
 | Service | Address |
 |---|---|
-| Dozzle agent | `10.0.0.30:7007` |
-| Posterizarr WebUI | `10.0.0.30:8000` |
+| Dozzle agents | `10.0.0.30:7007`, `10.0.0.35:7007`, `10.0.0.36:7007` |
+| Posterizarr | `10.0.0.30:8000` |
+| JDownloader | `10.0.0.36:5800` — if its `WEB_AUTHENTICATION` isn't supported |
 
 Would also cover Homepage when `apps` is built.
 
 ### CT ID numbering scheme
 
 **Undefined.** IDs grew by node — 1xx Rhea, 2xx Hestia — which splits the DNS
-pair across ranges: `dns` is **100**, `dns2` is **201**, even though the pair is
-one logical unit deliberately split across nodes.
+pair across ranges: `dns` is 100, `dns2` is 201.
 
-A service-based scheme would read better — e.g. 100/101 DNS, 200 media, 3xx
-arr/grab, 4xx apps.
+`arr` = 300 and `grab` = 301 **fit both candidate schemes**, so they defer rather
+than compound the problem. **Decide before `sandbox` and the Hestia/Rhea LXCs.**
 
-**Decide before the remaining six LXCs compound it.** Not renumbering what
-exists.
+### Backup off-box
 
-### Docker version drift
+Nothing off Tartarus yet. **Gates Reclaimerr's deletion** and is underlined hard
+by Immich (3-2-1 for irreplaceable photos).
 
-`media` is on **29.8.1**, `monitor` on **29.8.2** — built days apart. Harmless
-now; worth a deliberate bump policy before there are eleven of them.
+**Restic ([D12](./DECISIONS.md)) is also still unbuilt**, so `arr` and `grab`
+configs are currently **unprotected** — including Audiobookshelf's listening
+progress and SABnzbd's restored-and-corrected ini.
 
-### Themis needs subuid/subgid before `arr` or `grab`
+### Second-tier SSD on Rhea/Hestia
 
-Themis lacks `root:3004:1` in `/etc/subuid` and `/etc/subgid`, plus the six
-`lxc.idmap` lines per container. **Hestia has this; Themis does not.**
+Bays empty; lower priority now that `themis-500` exists. **Filling a bay may
+renumber `sdX`** — revisit Beszel's root-device detection then.
 
-Without it an unprivileged container maps UID 3004 → 103004, which the NFS export
-rejects — and the share is mode `drwx------`, so the guest sees nothing at all.
-Exact block:
-[build-gotchas.md](./build-gotchas.md#unprivileged-containers-need-an-idmap-to-use-the-nfs-share).
+### Corosync shares one NIC per node
 
-### `/themis-500/incomplete` is owned `root:root`
+Latency-sensitive, sharing with guest and storage traffic; heavy NFS or backup
+traffic can make it flap. The CRS310's free SFP+ ports allow a dedicated link if
+NICs are added.
 
-qBittorrent runs as 3004 and **cannot write there**. Must become `3004:3004`
-before `grab` goes up — do it as part of that build so the whole download path
-gets verified at once.
+### NFS-before-container ordering at boot
+
+If the NFS mount is not up when Proxmox starts a container, **the bind mount
+hands the guest an empty local directory** and writes land on node-local disk
+instead of the NAS — silently.
+
+`x-systemd.requires=network-online.target` is in the fstab line. **Themis's
+reboot is queued above** as the first real test.
+
+### Proxmox HA vs Kubernetes
+
+Leaning **HA**, but HA needs shared storage, making Tartarus a cluster SPOF, so
+off-box backup comes first. **ZFS replication between nodes is the lighter
+alternative.**
+
+### VLAN rollout
+
+Deferred until the flat 2.5G network is proven — **not blocked**. Needs the
+CRS310 VLAN table and PVIDs, ER605 DHCP scopes and isolation rules, and the Omada
+controller to tag the guest/IoT SSIDs.
 
 ### ER605 cannot advertise a single-label search domain
 
-Both `lan` and `.lan` fail the router's DHCP *Default Domain* validation. The
-field was left blank, so **`.lan` cannot be advertised by DHCP on this router**.
+Both `lan` and `.lan` fail the router's DHCP *Default Domain* validation — the
+field wants at least one dot — so it was left blank. **`.lan` therefore cannot be
+advertised by DHCP on this router.**
 
 | Option | Cost |
 |---|---|
@@ -139,124 +237,21 @@ field was left blank, so **`.lan` cannot be advertised by DHCP on this router**.
 
 A **deliberate repo decision**, not an improvisation at the console.
 
-### Themis's node search domain is unchecked
+### Other standing items
 
-Rhea's was found set to **`an`**, not `lan`, and every guest it created inherited
-the typo. Hestia was correct. **Themis has not been checked.** Containers pick up
-a correction only on restart.
-
----
-
-## Gating dependencies
-
-### Nothing lives off Tartarus yet
-
-Proxmox dumps, the Restic repo, and live data all land on the same box. **RAID
-plus one-way rsync is not a backup.**
-
-**This gates two things:**
-
-- **Reclaimerr's scheduled deletion** ([D23](./DECISIONS.md)) — Restic-to-Tartarus
-  is on-box, so a bad deletion rule propagates into the backup.
-- **Proxmox HA**, which would make Tartarus a cluster-wide SPOF.
-
-Underlined hard by Immich, which holds the most irreplaceable data in the lab and
-wants 3-2-1 — **both** the database and the media filesystem.
-
----
-
-## Infrastructure
-
-### NFS-before-container ordering at boot
-
-If the NFS mount is not up when Proxmox starts a container, **the bind mount
-hands the guest an empty local directory** and writes land on node-local disk
-instead of the NAS — silently.
-
-`x-systemd.requires=network-online.target` is in the fstab line. **Verify on the
-next reboot of each node rather than trusting it.**
-
-### Second-tier SSD for Rhea and Hestia
-
-Both 2.5" bays are empty. **Lower priority** now that `themis-500` exists.
-
-### Corosync shares one NIC per node
-
-Latency-sensitive, sharing with guest and storage traffic; heavy NFS or backup
-traffic can make it flap. No fix today — one port per node. The CRS310's free
-SFP+ ports allow a dedicated link if NICs are added.
-
-### Proxmox HA vs Kubernetes
-
-Leaning **HA** — the workload is overwhelmingly single-instance stateful
-containers. But HA needs shared storage, making Tartarus a cluster SPOF, so
-off-box backup comes first. **ZFS replication between nodes is the lighter
-alternative.**
-
-### VLAN rollout
-
-Deferred until the flat 2.5G network is proven — **not blocked**. Needs the
-CRS310 VLAN table and PVIDs, ER605 DHCP scopes and isolation rules, and the Omada
-controller to tag the guest/IoT SSIDs. Ordering and traps:
-[network-core-crs310.md](./network-core-crs310.md#vlan-rollout--procedure).
-
-### OC200 RMA
-
-Outstanding, **not blocking VLANs**. Needed only for Omada AP management, which
-the software controller also covers.
-
-### 2.5G negotiation
-
-Only materialises where both ends support it. **The M720q is gigabit.**
-
----
-
-## Operational gaps
-
-### Docker socket exposure
-
-Dozzle is solved via **agent mode** — and an agent *cannot* sit behind a
-socket-proxy, so agents are the mechanism rather than a workaround.
-**wud still wants a socket-proxy**; it mounts the socket read-only today, which
-is still root-equivalent read access.
-
-### No log persistence anywhere
-
-Dozzle shows **live logs only**. Nothing retains logs across a container restart.
-
-### changedetection.io fails silently
-
-**The thing that would alert you is the thing that stopped.** Put Uptime Kuma on
-watch-the-watcher duty. If it graduates from trial to relied-upon, move it out of
-`sandbox`.
-
-### Home Assistant USB passthrough pins the VM
-
-Zigbee passthrough pins the VM to one node → **no Proxmox HA for it**. Either
-accept, or decouple with a networked Zigbee coordinator, placed where the mesh
-needs it rather than where the rack is.
-
----
-
-## Deferred pending hardware or a decision
-
-| Item | Blocked on |
+| Item | Status |
 |---|---|
-| **Whisper AI subtitles** (Bazarr) | A GPU decision for Themis — its UHD 630 is not passed into `arr` |
-| **Local LLM** (Ollama / Open WebUI) | Same. No ML acceleration on UHD 630, so CPU-only. Reopen if a real GPU joins |
-| **Rhea RAM 16 → 32 GB** | Cost only. Blocks nothing, and **known-good** — Hestia runs 32 GB on the identical board |
-| **Apprise notification fan-out** | Would serve ntfy, Speedtest Tracker and changedetection together |
-| **Compose stubs** — Tracktor, ShipShipShip, ListingLab | User-provided images |
-
----
-
-## Housekeeping
-
-- **Check SMB and client bookmarks** still pointing at `tartarus.local` — the
-  TrueNAS domain changed to `.lan`.
-- **`atlas/sisyphus-migrator`** is not covered by the service review. It is a
-  profile-gated one-shot rsync helper for the migration itself. Retire it once
-  the migration is done.
+| **No log persistence anywhere** | Dozzle shows live logs only |
+| **changedetection.io's silent failure** | Put Kuma on watch-the-watcher duty when `sandbox` exists |
+| **HA USB/Zigbee passthrough** | Pins the VM to a node → no Proxmox HA for it |
+| **OC200 RMA** | Outstanding; not blocking VLANs |
+| **Compose stubs** | Tracktor / ShipShipShip / ListingLab need user images |
+| **Rhea RAM 16 → 32 GB** | Deferred on cost; blocks nothing, known-good |
+| **2.5G negotiation** | M720q is gigabit; 2.5G only where both ends support it |
+| **Whisper subtitles, local LLM** | Deferred pending a GPU decision for Themis |
+| **Apprise fan-out** | Would serve ntfy, Speedtest Tracker and changedetection together |
+| **Docker version drift** | `media` 29.8.1; `monitor`/`arr`/`grab` 29.8.2. Harmless; worth a bump policy |
+| **SMB bookmarks** | Check for any still referencing `tartarus.local` |
 
 ---
 
@@ -264,25 +259,24 @@ needs it rather than where the rack is.
 
 | Was | Resolution |
 |---|---|
-| **DNS redundancy (urgent)** | **Built and tested.** Two Pi-holes, keepalived VIP at `10.0.0.33`, nebula-sync hourly — [D27](./DECISIONS.md). **The SPOF is closed** |
+| `media` resolv.conf on `10.0.0.1` | Now the VIP `10.0.0.33` |
+| Remaining `.lan` records | Added and replication verified |
+| **Beszel `FILESYSTEM` override** | **Not needed — `sda` was correct.** Rhea and Hestia boot from **M.2 SATA**, not NVMe |
+| Telegram on every monitor | Verified delivering |
+| Themis `root:3004:1` subuid/subgid | Done |
+| `/themis-500/incomplete` root-owned | Fixed — per-client subfolders owned 3004 |
+| GPU device unopenable by `abc` | Pass the device with `gid=3004`, not the container's `render` group |
+| Uptime Kuma stuck on 1.x | Migrated to 2.5.0; `:latest` was lagging a major version |
+| **DNS redundancy (urgent)** | **Built and tested** — two Pi-holes, keepalived VIP, nebula-sync hourly |
 | Where the second Pi-hole lives | `dns2`, CT 201, on **Hestia** — not Rhea, which is the point |
 | How the two Pi-holes stay in sync | nebula-sync, **one-way**, hourly. Edit the primary only |
-| `/dev/dri` passthrough for `media` | **Done.** Encode *and* decode verified with `vainfo` |
-| Transcode scratch on NFS | **Done.** Docker-level tmpfs — the LXC-level mount fails silently |
-| `themis-500/downloads` rename, orphaned `transcode` | **Done** |
-| sisyphus host mounts and bind mounts | **Done** on all three nodes, at `/mnt/sisyphus` — [D25](./DECISIONS.md) |
-| Which LXC address range | `.30–.59` — [D24](./DECISIONS.md) |
-| Stale `appdata/` and `dev/` on the share | Deleted — 403 MB plus a stray container `/dev` skeleton |
+| `app_sudo` drifting between the pair | **Not carried by `FULL_SYNC`** — verified over six hourly syncs. Leave the primary `false` |
+| `/dev/dri` passthrough | Done; encode *and* decode verified |
+| Transcode scratch on NFS | Docker-level tmpfs — the LXC-level mount fails silently |
+| sisyphus host mounts | Done on all three nodes at `/mnt/sisyphus` |
+| Which LXC address range | `.30–.59` |
 | Audiobookshelf placement | `arr` on Themis, beside abs-arr. Not `media` |
-| Immich / Paperless not placed | Immich has a dedicated LXC; Paperless is in `apps` |
-| Full per-service keep/drop | Pass 1 complete |
-| Grouping validation | Pass 2 complete; every grouping structurally validated |
-| Media / transcode placement | Media on Hestia; transcode to tmpfs |
 | qBittorrent blocked on a second SSD | Unblocked by the `themis-500` HDD pool |
-| Themis on a mechanical boot disk | Rebuilt onto NVMe |
-| gluetun / VPN killswitch | Removed — [D17](./DECISIONS.md) |
-| Watchtower auto-update risk | Dropped for wud, notify-only — [D28](./DECISIONS.md) |
-| Rhea load pinned at 1.00 | The `snd_hda_intel` audio timeout — [fixed](./hardware-inventory.md#rhea--snd_hda_intel-must-stay-blacklisted) |
-| ZFS depends on Rhea's RAM upgrade | False. ARC auto-caps at 10% of RAM |
-| VLANs blocked on a working Omada controller | False. The MikroTik does VLANs |
-| SQLite / `/config` on NFS | Decided: node-local ZFS only — [D11](./DECISIONS.md) |
+| gluetun wired to nothing | Stale stub deleted; the new one is a fresh build in `grab` ([D30](./DECISIONS.md)) |
+| Watchtower auto-update risk | Dropped for wud, notify-only |
+| SQLite / `/config` on NFS | Node-local ZFS only |

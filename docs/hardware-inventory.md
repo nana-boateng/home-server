@@ -3,7 +3,7 @@
 Measured state of the cluster. **Every sizing decision depends on this table**, so
 it lives in the repo rather than in a chat log.
 
-Last verified: **2026-10-01**. Update this file when hardware changes — a stale
+Last verified: **2026-10-03**. Update this file when hardware changes — a stale
 inventory is worse than none, because it gets trusted.
 
 Related: [DECISIONS.md](./DECISIONS.md) · [rebuild-runbook.md](./rebuild-runbook.md) ·
@@ -20,7 +20,7 @@ Cluster name: **`gaia`** — 3 nodes, expected votes 3, quorum 2, quorate.
 | Machine | **Beelink Mini S** | **Beelink Mini S** | Lenovo ThinkCentre M720q |
 | CPU | N5095, 4c | N5095, 4c | i7-8700T, 6c/12t |
 | RAM | **16 GB** (15.40 GiB) | 32 GB | 32 GB |
-| Boot disk | 500 GB NVMe | **1 TB NVMe** | **500 GB WD SN550 NVMe** (new) |
+| Boot disk | **500 GB M.2 SATA** (Timetec NMS04) | **1 TB M.2 SATA** (Fanxiang S201) | **500 GB WD SN550 NVMe** |
 | Scratch pool | — | — | **`themis-500`: 500 GB WD5000LPLX HDD** |
 | Second bay | empty (2.5" SATA) | empty (2.5" SATA) | now holds the old HDD |
 | iGPU | UHD, 16 EU (Jasper Lake) | UHD, 16 EU (Jasper Lake) | **UHD 630, 24 EU** |
@@ -42,6 +42,15 @@ Cluster name: **`gaia`** — 3 nodes, expected votes 3, quorum 2, quorate.
   Main through Main444_10, VP9 profiles 0–3, VC1, MPEG2, JPEG, with both decode
   (`VLD`) and encode (`EncSliceLP`) entrypoints, and no AV1 entry at all.
   See [build-record.md](./build-record.md).
+- **Rhea and Hestia boot from M.2 SATA, not NVMe** — corrected 2026-10-03.
+  `lsblk` shows `sda`, `TRAN sata`, and `rpool` on `ata-...-part3`. **Only Themis
+  has NVMe.** This retired a false alarm: Beszel reporting `sda` for root I/O on
+  those two was **correct all along**, so no `FILESYSTEM` override is needed —
+  and a hard-coded `sdX` could become wrong once a 2.5" bay is filled.
+- **Jasper Lake encodes with the low-power encoder only** (`EncSliceLP` in
+  `vainfo`), which depends on Intel's **HuC firmware** being loaded on the host.
+  Relevant to the
+  [parked hardware-transcoding failure](./OPEN-QUESTIONS.md#hardware-transcoding-fails--parked).
 - **Themis has the strongest iGPU** (UHD 630, 24 EU) — and media still did **not**
   move there. See [service-architecture.md](./service-architecture.md).
 - **Themis's scratch blocker is resolved** by the `themis-500` HDD pool. Rhea's
@@ -151,6 +160,6 @@ the data is disposable. See [DECISIONS.md](./DECISIONS.md) D21.
 `themis-500/incomplete`, and the orphaned `themis-500/transcode` destroyed —
 transcode goes to tmpfs, not this pool.
 
-> **`/themis-500/incomplete` is owned `root:root`.** qBittorrent runs as 3004 and
-> cannot write there yet. Fix it as part of the `grab` build, so the whole
-> download path gets verified at once.
+**Per-client subfolders, owned `3004:3004`** (done): `incomplete/sabnzbd` (SAB
+in `arr`), `incomplete/qbittorrent` (`grab`), and `incomplete/qbittorrent-vpn`
+to come. Bind-mounted into both `arr` and `grab` as `/mnt/incomplete`.

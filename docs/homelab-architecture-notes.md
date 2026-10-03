@@ -101,7 +101,7 @@ with Rhea.
 Monitoring deliberately does **not** live here — Uptime Kuma, Beszel and ntfy
 are in Hestia's `monitor` LXC, whose `resolv.conf` points at `10.0.0.1` rather
 than Pi-hole, so alerting survives Rhea going down. Kuma still needs an
-[off-Hestia notification path](./OPEN-QUESTIONS.md#uptime-kuma-off-hestia-notification-path)
+[off-Hestia notification path](./OPEN-QUESTIONS.md#hestia-down-blind-spot-in-monitoring)
 for host-down events about its own node.
 
 ### Themis
@@ -362,7 +362,7 @@ copied atomically. Full rules: [DECISIONS.md](./DECISIONS.md) D12.
 
 Everything still lands on Tartarus, and RAID plus one-way rsync is not a backup.
 Getting at least one copy off that box is
-[an open, unresolved risk](./OPEN-QUESTIONS.md#nothing-lives-off-tartarus-yet).
+[an open, unresolved risk](./OPEN-QUESTIONS.md#backup-off-box).
 
 ## Final Direction
 

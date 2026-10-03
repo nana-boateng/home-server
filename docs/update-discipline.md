@@ -36,15 +36,17 @@ this wrong breaks things quietly, which is worse than breaking them loudly.**
 Agents run **native on each node, not in containers**: an agent inside an LXC
 reports that container's slice, not the node.
 
-### Dozzle server + agent — must match exactly
+### Dozzle server + agents — must match exactly
 
 | Component | Where | Version |
 |---|---|---|
 | server | `monitor` (CT 202) | `v11.1.3` |
-| agent | `media` (CT 200), port 7007 | `v11.1.3` |
+| agent | `media` (CT 200) | `v11.1.3` |
+| agent | `arr` (CT 300) | `v11.1.3` |
+| agent | `grab` (CT 301) | `v11.1.3` |
 
-**Every future stack adds another agent to keep in step.** Budget for that when
-planning the remaining LXCs — the coupling grows with the lab.
+**Upgrade all four together, and every future stack adds another agent to keep
+in step.** The coupling grows with the lab.
 
 ### The two Pi-holes — never both at once
 
@@ -87,11 +89,47 @@ that window would vanish.
 | LXC | Docker |
 |---|---|
 | `media` (CT 200) | 29.8.1 |
-| `monitor` (CT 202) | 29.8.2 |
+| `monitor` (CT 202), `arr` (CT 300), `grab` (CT 301) | 29.8.2 |
 
-Harmless now — they were built a few days apart. Worth a deliberate bump policy
-before there are eleven of them. Tracked in
-[OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md#docker-version-drift).
+Harmless — they were built days apart. Worth a deliberate bump policy before
+there are a dozen of them. Tracked in
+[OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md#other-standing-items).
+
+---
+
+## Major-version upgrades
+
+Any jump the releases page shows as a new major — Uptime Kuma 1 → 2, say — in
+this order:
+
+1. **Read the project's migration notes.**
+2. **Snapshot the whole LXC from its host:** `pct snapshot <id> pre-<thing>`.
+   > **App-level exports are not a safe rollback** — Uptime Kuma 2.0 changed its
+   > own backup feature, so the thing you would restore with is itself part of
+   > what changed.
+3. Pull the exact new tag and confirm its version.
+4. Change the tag in the compose, `docker compose up -d <svc>`, and **follow the
+   logs through the migration without restarting it partway.**
+5. Verify in the UI.
+6. If broken: `pct rollback <id> pre-<thing>`.
+   If good: `pct delsnapshot <id> pre-<thing>`, so the snapshot doesn't pin old
+   data on ZFS.
+
+---
+
+## Things that update themselves anyway
+
+Known exceptions to "nothing auto-updates", all deliberate:
+
+| Thing | Behaviour |
+|---|---|
+| **JDownloader** | Updates its own core at runtime, by design. The image stays pinned |
+| **VueTorrent** | Installed from a release zip, so it **never** updates itself — record the installed version and re-download deliberately |
+| **Recyclarr's daily sync** | Changes Radarr/Sonarr profiles whenever TRaSH changes its guides. That is **configuration, not code**, and is the point of running it — review `docker compose logs recyclarr` occasionally |
+
+> **wud currently sees only `monitor`'s Docker daemon**, so `media`, `arr` and
+> `grab` get **no update notifications at all**. Until that is fixed, check them
+> by hand with `scripts/check-versions.sh`.
 
 ---
 

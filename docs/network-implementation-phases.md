@@ -310,7 +310,7 @@ ping `10.0.0.20`.
 
 ### 3.5 Deploy the stacks
 
-Placement per [service-architecture.md](./service-architecture.md) — **11 LXCs
+Placement per [service-architecture.md](./service-architecture.md) — **12 LXCs
 and a VM, not all on one node.**
 
 Order:

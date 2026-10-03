@@ -25,18 +25,25 @@ services:
       - VERSION=docker
       - PLEX_CLAIM=${PLEX_CLAIM}
     # QuickSync. renderD128 only — never card0/card1.
-    # RENDER_GID is the CONTAINER's render gid (992 on Hestia), not the host's
-    # (993). Read it with: pct exec <id> -- getent group render
+    # The device is passed into the LXC owned by GROUP 3004, not the container's
+    # own `render` group (992). Every service here runs as abc = UID 3004 whose
+    # groups are only 3004 and 100, and the linuxserver init that would normally
+    # add abc to the device's group does not fire inside an idmapped LXC — so
+    # with the device at 0:992 the services could see it but not open it.
+    #   pct set 200 -dev0 /dev/dri/renderD128,gid=3004,mode=0660
+    # No group_add is needed once the device is group-3004.
     devices:
       - /dev/dri/renderD128:/dev/dri/renderD128
-    group_add:
-      - "${RENDER_GID}"
     volumes:
       - ${APPDATA_DIR}/media/plex:/config
       - ${STORAGE_DIR}:/data
     # Transcode scratch in RAM. Declared here, at the Docker level, because
     # lxc.mount.entry tmpfs into an idmapped unprivileged container fails
-    # silently (docs/build-gotchas.md). Keep the cap under the LXC's 8 GB.
+    # silently (docs/build-gotchas.md).
+    # TARGET IS ~1g EACH (still to resize). With swap 0, whatever the tmpfs
+    # holds counts against the LXC's 8 GB with no way to reclaim it, so both
+    # caps plus the apps' ~3 GB working set must stay under 8 GB.
+    # Measured: a 1080p transcode at 8-12 Mbps sawtooths between 21 and 104 MB.
     tmpfs:
       - /transcode:rw,size=4g,uid=3004,gid=3004
     restart: unless-stopped
@@ -50,14 +57,13 @@ services:
       - PGID=${PGID}
     devices:
       - /dev/dri/renderD128:/dev/dri/renderD128
-    group_add:
-      - "${RENDER_GID}"
     ports:
       - '8096:8096'
       - '8920:8920'
     volumes:
       - ${APPDATA_DIR}/media/jellyfin:/config
       - ${STORAGE_DIR}:/data
+    # Target ~1g (still to resize) — see the plex note above.
     tmpfs:
       - /transcode:rw,size=4g,uid=3004,gid=3004
     restart: unless-stopped

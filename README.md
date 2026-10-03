@@ -83,7 +83,7 @@ Intended workloads:
 - `media` LXC — Plex, Jellyfin, Tautulli, Posterizarr, Navidrome (**built**)
 - `monitor` LXC — Uptime Kuma, Beszel, ntfy, wud, Dozzle (**built**)
 - `dns2` LXC — the Pi-hole replica, deliberately not on Rhea (**built**)
-- `apps`, `immich` LXCs
+- `apps`, `immich` LXCs — not yet built
 - Channels-DVR
 - Booklore
 - Kavita
@@ -100,14 +100,12 @@ limit is disk (~446 GiB), not CPU.
 
 Intended workloads:
 
-- `io` stack (qBittorrent excepted — see below)
-- `asteria` stack
-- Home Assistant OS VM
-- Immich — now GPU-accelerated here
-- Paperless-ngx
-- `helios` stack
-- MySpeed
-- OpenGist
+- `arr` LXC — Prowlarr, Radarr, Sonarr, SABnzbd, Byparr, Recyclarr, Bazarr,
+  Audiobookshelf, abs-arr, Reclaimerr (**built**)
+- `grab` LXC — qBittorrent, JDownloader, MeTube (**built**; a second
+  VPN-only qBittorrent is still to come)
+- `sandbox` LXC — not yet built
+- Home Assistant OS VM — not yet built
 
 `aeos` and the remainder of `atlas` (Dozzle, Watchtower) have **no assigned
 node** yet — see [OPEN-QUESTIONS.md](./docs/OPEN-QUESTIONS.md).
@@ -159,7 +157,8 @@ Two tiers, and the split is load-bearing:
 | Tier | Path | Holds |
 |---|---|---|
 | Node-local ZFS | `/opt/appdata/<stack>/<service>` | `/config`, databases, runtime state |
-| NFS (`sisyphus`) | `/mnt/storage/...` | `downloads/`, `media/`, `shared/` |
+| HDD scratch | `/mnt/incomplete/<client>` | in-progress downloads, disposable |
+| NFS (`sisyphus`) | `/mnt/sisyphus` — **`/data` inside containers** | `downloads/`, `media/`, `shared/` |
 
 **Databases and `/config` never touch NFS** — SQLite over NFS has unreliable
 locking and a well-known corruption mode. Node-local state is backed up to
@@ -172,7 +171,7 @@ atomically. See [DECISIONS.md](./docs/DECISIONS.md) D11 and D12.
 > directory names below predate the current architecture and are **no longer the
 > deployment unit**. `aeos`, `helios`, `atlas` and `hera` dissolve; `io`,
 > `asteria` and `apollo` survive as `grab`, `arr` and `media`. The real map —
-> 11 LXCs and a VM, grouped by failure domain — is
+> 12 LXCs and a VM, grouped by failure domain — is
 > [service-architecture.md](./docs/service-architecture.md), which also carries
 > the inventory → grouping table.
 >

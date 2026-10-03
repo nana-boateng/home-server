@@ -98,6 +98,34 @@ Addressing for the VLANs is the third-octet scheme in
 
 ---
 
+## What stays on the ER605
+
+The split is deliberate: **the CRS310 tags and forwards; the ER605 routes and
+filters.** Two consequences worth writing down, because both look like switch
+jobs:
+
+### DNS enforcement
+
+Blocking clients from using their own resolvers is **firewall policy**, so the
+rule lives on the ER605: **deny LAN → WAN TCP/UDP 53 and 853 from every source
+except `10.0.0.31` and `10.0.0.32`.** Filtering it on the CRS310 would mean
+pushing all bridged traffic through its CPU and giving up hardware switching —
+the same trade-off this page already rejects. See
+[DECISIONS.md](./DECISIONS.md) D31.
+
+### Port forwards
+
+| Port | To | For |
+|---|---|---|
+| 6881 TCP + UDP | `10.0.0.36` (`grab`) | qBittorrent — the VPN-free instance seeds permanently and must be connectable |
+
+Standalone UI path: **Transmission → NAT → Virtual Servers.**
+
+Plex is **not** forwarded — it keeps its own native remote access
+([D18](./DECISIONS.md)); a manual 32400 forward is a fallback only.
+
+---
+
 ## Known limitation: corosync shares a NIC
 
 Each node has one port, so corosync shares its NIC with guest and storage

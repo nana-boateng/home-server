@@ -1,0 +1,123 @@
+# grab — CT 301 on Themis, 10.0.0.36
+#
+# Mirrors the LIVE build at /opt/stacks/grab/compose.yaml.
+# Build record: docs/build-record.md · Gotchas: docs/build-gotchas.md
+#
+# A CONVENIENCE BUCKET OF UNRELATED DOWNLOADERS, not a coupled system. Grouped
+# by what they are, not by working together — there is no integration to get
+# right here, which is why it tolerates being the loosest grouping in the lab.
+#
+# TWO qBittorrents by design (D30):
+#   qbittorrent      — owner + abs-arr (MyAnonymouse). NO VPN. Permanent seeding.
+#   qbittorrent-vpn  — Radarr/Sonarr public-tracker grabs. ONLY via gluetun.
+# The VPN-free instance is a CONSIDERED divergence from every arr guide, not an
+# oversight. Do not add a VPN to it: MAM ties the account to the IPs you seed
+# from and wants long-term connectable seeding.
+#
+# TAGS MARKED "PIN-ME" WERE NOT IN THE BRIEF — read them off the live host.
+
+services:
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:5.2.4_v2.0.15-ls479
+    container_name: qbittorrent
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - WEBUI_PORT=8080
+      - TORRENTING_PORT=6881
+    ports:
+      - '8080:8080'
+      # 6881 TCP+UDP is forwarded on the ER605 to 10.0.0.36 — this instance
+      # seeds permanently and must be connectable.
+      - '6881:6881/tcp'
+      - '6881:6881/udp'
+    volumes:
+      - ${APPDATA_DIR}/grab/qbittorrent:/config
+      # Same single unified root as arr, at the SAME path string, so imports
+      # hardlink instead of copying and seeding continues.
+      - ${STORAGE_DIR}:/data
+      - ${INCOMPLETE_DIR}/qbittorrent:/incomplete
+    restart: unless-stopped
+    # VueTorrent is installed MANUALLY from its release zip into
+    # /config/vuetorrent and set as the alternative Web UI — deliberately NOT
+    # via the linuxserver mod, which pulls the newest version on every start.
+    # It therefore never self-updates: record the installed version.
+
+  # Outside the media pipeline entirely, so it needs no hardlink flow and no
+  # shared sisyphus path — only its own output folder. The jlesage image runs
+  # the desktop Java app headless and streams its GUI to the browser (a
+  # remote-desktop feel, not a native web UI), and takes USER_ID/GROUP_ID
+  # rather than PUID/PGID. JDownloader self-updates its own core at runtime by
+  # design; the image stays pinned.
+  jdownloader:
+    image: jlesage/jdownloader-2:PIN-ME
+    container_name: jdownloader
+    environment:
+      - TZ=${TZ}
+      - USER_ID=${PUID}
+      - GROUP_ID=${PGID}
+      # Puts a login in front of the GUI. If this image version lacks it, the
+      # UI joins the unauthenticated-on-the-LAN list in OPEN-QUESTIONS.md.
+      - WEB_AUTHENTICATION=1
+      - WEB_AUTHENTICATION_USERNAME=${JDOWNLOADER_USER}
+      - WEB_AUTHENTICATION_PASSWORD=${JDOWNLOADER_PASSWORD}
+    ports:
+      - '5800:5800'
+    volumes:
+      - ${APPDATA_DIR}/grab/jdownloader:/config
+      - ${STORAGE_DIR}/downloads/direct/jdownloader:/output
+    restart: unless-stopped
+
+  # yt-dlp web UI. Occasional paste, not auto-archiving — Pinchflat, TubeSync
+  # and TubeArchivist were rejected as subscription/archival-first.
+  # Storage deliberately unentangled from the media pipeline.
+  metube:
+    image: ghcr.io/alexta69/metube:PIN-ME
+    container_name: metube
+    environment:
+      - UID=${PUID}
+      - GID=${PGID}
+      - DOWNLOAD_DIR=/downloads
+      - STATE_DIR=/state
+      - TEMP_DIR=/tmp-dl
+    ports:
+      - '8081:8081'
+    volumes:
+      - ${STORAGE_DIR}/downloads/direct/metube:/downloads
+      # state and temp node-local, not on NFS
+      - ${APPDATA_DIR}/grab/metube/state:/state
+      - ${APPDATA_DIR}/grab/metube/tmp:/tmp-dl
+    restart: unless-stopped
+
+  dozzle-agent:
+    image: amir20/dozzle:v11.1.3
+    container_name: dozzle-agent
+    command: agent
+    environment:
+      - DOZZLE_HOSTNAME=grab
+    ports:
+      - '7007:7007'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # NOT YET BUILT — gluetun + qbittorrent-vpn (D30).
+  #
+  # Needs first: a Proton VPN Plus subscription, and /dev/net/tun passed into
+  # the LXC:   pct set 301 -devN /dev/net/tun
+  #
+  # Proton (and PIA) are the only providers gluetun's native automatic port
+  # forwarding works with — Mullvad dropped port forwarding in 2023. Proton
+  # assigns a RANDOM forwarded port, so a helper must push it into
+  # qBittorrent's listening port.
+  #
+  # qbittorrent-vpn uses network_mode: "service:gluetun", so its Web UI port is
+  # published on gluetun, not on itself. Own incomplete folder
+  # (${INCOMPLETE_DIR}/qbittorrent-vpn), same ${STORAGE_DIR}:/data for
+  # hardlinks, and seeding limited by ratio/time then removed.
+  #
+  # VERIFY THE KILL SWITCH before trusting it: stop gluetun and confirm
+  # qbittorrent-vpn loses connectivity entirely.
+  # ---------------------------------------------------------------------------

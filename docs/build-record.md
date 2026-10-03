@@ -7,7 +7,7 @@ Read [build-gotchas.md](./build-gotchas.md) before building the next LXC — it 
 the higher-value page of the two.
 
 Status against the [service architecture](./service-architecture.md):
-**5 of 11 LXCs built.** The DNS single point of failure is **closed**.
+**6 of 12 LXCs built.** The DNS single point of failure is **closed**.
 
 | LXC | CT | Node | IP | Status |
 |---|---|---|---|---|
@@ -16,9 +16,11 @@ Status against the [service architecture](./service-architecture.md):
 | `dns2` | 201 | Hestia | `10.0.0.32` | **Live** — Pi-hole replica |
 | — | — | floating | **`10.0.0.33`** | **Live** — keepalived VIP, what DHCP advertises |
 | `monitor` | 202 | Hestia | `10.0.0.34` | **Live** |
+| `arr` | 300 | Themis | `10.0.0.35` | **Live** |
+| `grab` | 301 | Themis | `10.0.0.36` | **Live** — except `qbittorrent-vpn` |
 | `proxy`, `tailscale`, `omada` | | Rhea | — | Not built |
 | `apps`, `immich` | | Hestia | — | Not built |
-| `arr`, `grab`, `sandbox`, `homeassistant` | | Themis | — | Not built |
+| `sandbox`, `homeassistant` (VM) | | Themis | — | Not built |
 
 Native LXC configuration (keepalived, unbound, nebula-sync) is in
 [`infra/dns/`](../infra/dns/).
@@ -33,22 +35,41 @@ Debian 13 (trixie) amd64, **unprivileged**, `nesting=1,keyctl=1`, 4 cores,
 8192 MB, `swap 0`, 32 GB rootfs on `local-zfs`, `onboot 1`, static IP in the
 container config.
 
-> **`nameserver` is still `10.0.0.1` and should now be the VIP `10.0.0.33`** —
-> `media` is an ordinary client. Only `monitor` keeps the bypass.
-> `pct set 200 --nameserver 10.0.0.33`, then restart. **Still outstanding.**
+**`nameserver 10.0.0.33`** — the VIP. `media` is an ordinary client; only
+`monitor` keeps the Pi-hole bypass.
 
 ### GPU passthrough
 
-Host: `/dev/dri/renderD128` is `226:128`, host `render` group is GID **993**.
-**The container's own `render` group is GID 992.** Read it; never assume they
-match:
+Host: `/dev/dri/renderD128` is `226:128`, host `render` group is GID 993. Pass
+the render node into the container **owned by group 3004**:
 
 ```bash
-pct exec 200 -- getent group render
-pct set 200 -dev0 /dev/dri/renderD128,gid=992,mode=0660
+pct set 200 -dev0 /dev/dri/renderD128,gid=3004,mode=0660
+pct reboot 200
 ```
 
-**`renderD128` only — never `card0`/`card1`.**
+> **Why 3004 and not the container's own `render` group (992), which is what was
+> used through rev 9.** Plex and Jellyfin run as `abc`, UID 3004, whose groups
+> are only `3004` and `100`. With the device at `0:992` mode `0660` the services
+> could **see** it but not **open** it — Plex logged
+> `opening hw device failed - probably not supported by this system, error:
+> Invalid argument` and fell back to software.
+>
+> The linuxserver init normally adds `abc` to the device's group at startup;
+> **inside this idmapped LXC it did not.** Every service in `media` runs as
+> 3004, so assigning the device to that group covers all of them without
+> relying on in-container group handling.
+>
+> **A root-run `vainfo` succeeding proves nothing** about what the service user
+> can open — that is why the problem survived the original verification.
+
+**`renderD128` only — never `card0`/`card1`.** Check the ownership that actually
+landed:
+
+```bash
+pct exec 200 -- docker exec plex ls -ln /dev/dri    # group must be 3004
+pct exec 200 -- docker exec plex id abc
+```
 
 Verified with `vainfo`, after installing `vainfo` and
 `intel-media-va-driver-non-free`:
@@ -61,10 +82,6 @@ Verified with `vainfo`, after installing `vainfo` and
 
 **No AV1** — exactly as the hardware inventory predicted. Jasper Lake predates
 Intel's Gen-12 AV1 decode.
-
-The device appears correctly inside the Plex and Jellyfin containers. The group
-shows as a bare `992` there because neither image defines a `render` group —
-**cosmetic; the numeric GID is what matters.**
 
 ### sisyphus
 
@@ -143,17 +160,37 @@ fails silently. On plex and jellyfin only:
 
 **aggregarr is not built** — decided, but not in the live compose.
 
+### Plex transcoder settings — done
+
+Settings → Transcoder → **Show Advanced** (the fields below are hidden without
+it):
+
+- **Transcoder temporary directory: `/transcode`.** Takes effect for **new
+  playback sessions only** — restart playback after saving. Verified: during a
+  1080p transcode at ~8–12 Mbps, `df -h /transcode` sawtooths between 21 and
+  104 MB (Plex transcodes about a minute ahead and deletes finished segments),
+  and the old default under `/config/.../Cache/Transcode` stops growing.
+  **Measure with `df`, not `du`** — deleted-but-open segments still hold RAM and
+  only `df` sees them.
+- **Downloads temporary directory: deliberately left BLANK**, so offline-download
+  conversions (whole files, potentially several GB) stay on node-local ZFS under
+  `/config` and never fill the tmpfs. **Do not** point it at `/transcode` or at
+  sisyphus.
+- **Hardware acceleration: both checkboxes UNTICKED** until the
+  [parked failure](./OPEN-QUESTIONS.md#hardware-transcoding-fails--parked) is
+  fixed. With them on, changing quality freezes playback and falls back to
+  direct play — which would break remote friends' transcodes. Software
+  transcoding works.
+
 ### Still to do inside `media`
 
-1. **Enable hardware transcoding in each app** — it is **off by default**, so
-   the passthrough does nothing until it is switched on:
-   - **Jellyfin:** Dashboard → Playback → Transcoding → VA-API,
-     `/dev/dri/renderD128`; enable H.264 / HEVC / VP9, **leave AV1 off**.
-   - **Plex:** Settings → Transcoder → enable hardware transcoding, temporary
-     directory `/transcode`.
-2. Point libraries at `/data/media/...`.
-3. Confirm with a forced transcode — **Tautulli shows the decision.**
-4. Add aggregarr if wanted.
+- **Jellyfin transcode settings** — Dashboard → Playback → Transcoding: VA-API,
+  `/dev/dri/renderD128`, enable H.264 / HEVC / VP9, **leave AV1 off**, transcode
+  path `/transcode`, and tick **Throttle transcodes** and **Delete segments** —
+  without the last two Jellyfin keeps every segment for the whole session.
+- **Resize both tmpfs mounts to ~1 GB** once measured.
+- Point libraries at `/data/media/...`.
+- Add aggregarr if wanted.
 
 ---
 
@@ -242,14 +279,20 @@ dig doubleclick.net +short    # 0.0.0.0
 
 Also hosts **nebula-sync** — see below.
 
-### Local DNS records
+### Local DNS records — done
 
-Local `.lan` records live **here, on the primary**, and replicate to the
-replica. Added so far: **`plex.lan → 10.0.0.30`**.
+Local `.lan` records live **here, on the primary**, and replicate to the replica.
 
-Still outstanding: jellyfin, tautulli, navidrome, posterizarr (all `.30`),
-`pihole.lan → .33` (follows the VIP), and the four hosts — `rhea .10`,
-`themis .11`, `hestia .12`, `tartarus .20`.
+| Records | Target |
+|---|---|
+| `rhea`, `themis`, `hestia`, `tartarus` | `.10`, `.11`, `.12`, `.20` |
+| `plex`, `jellyfin`, `tautulli`, `navidrome`, `posterizarr` | `.30` |
+| `pihole` | `.33` — follows the VIP |
+
+Replication verified: `dig +short jellyfin.lan @10.0.0.32`.
+
+> **Service names for the other LXCs are deliberately NOT added yet.** Once
+> Caddy exists they should point at the proxy, not at each LXC.
 
 ---
 
@@ -374,11 +417,23 @@ Debian 13 amd64, unprivileged, `nesting=1,keyctl=1`, 2 cores, 2048 MB, `swap 0`,
 
 | Service | Image | Version | Port (host:container) |
 |---|---|---|---|
-| uptime-kuma | `louislam/uptime-kuma` | `1.23.17` | 3001:3001 |
+| uptime-kuma | `louislam/uptime-kuma` | **`2.5.0`** (was `1.23.17`) | 3001:3001 |
 | beszel | `henrygd/beszel` | `0.20.0` | 8090:8090 |
 | ntfy | `binwiederhier/ntfy` | `v2.28.0` | 8080:8080 |
 | wud | `ghcr.io/getwud/wud` | `9.2.1` | 3000:3000 |
 | dozzle | `amir20/dozzle` | `v11.1.3` | **8888:8080** |
+
+**Uptime Kuma 1 → 2 migration (done).** `1.23.17` was the old 1.x line, pinned
+because **`:latest` still pointed at it while 2.x was current** — see
+[build-gotchas.md](./build-gotchas.md#latest-can-lag-a-whole-major-version).
+Migrated in place with the major-upgrade procedure in
+[update-discipline.md](./update-discipline.md): `pct snapshot 202 pre-kuma2`,
+change the tag, `docker compose up -d uptime-kuma`, watch the logs through the
+migration, verify monitors and notifications, `pct delsnapshot 202 pre-kuma2`.
+
+Database stays **SQLite** — MariaDB, 2.x's headline feature, targets far larger
+deployments. 2.x also patched a **LiquidJS remote-code-execution issue in
+notification templates** (fixed in 2.4.0), so **stay at or above 2.4.0**.
 
 **ntfy** runs with `NTFY_AUTH_DEFAULT_ACCESS=deny-all`. It **defaults to fully
 open**, so without this anyone who can reach it could publish to or subscribe to
@@ -392,9 +447,15 @@ docker exec -it ntfy ntfy user add --role=admin <name>
 refuses to start**. Supplied via `env_file: .env`. It watches the local Docker
 socket by default — no watcher config needed.
 
+**wud** watches the local Docker socket by default — **which means it sees only
+`monitor`'s containers, not `media`, `arr` or `grab`.**
+[Open](./OPEN-QUESTIONS.md#wud-only-watches-monitors-docker-daemon); until it is
+fixed, `scripts/check-versions.sh` is the stopgap.
+
 **dozzle** needs `/opt/appdata/monitor/dozzle:/data` mounted **or its users and
 settings are lost on every recreate**. Server mode, with
-`DOZZLE_REMOTE_AGENT=10.0.0.30:7007` pointing at the agent in `media`.
+`DOZZLE_REMOTE_AGENT=10.0.0.30:7007,10.0.0.35:7007,10.0.0.36:7007` — agents in
+`media`, `arr` and `grab`, each setting its own `DOZZLE_HOSTNAME`.
 
 > **Actions and shell are deliberately NOT enabled.** Dozzle is a log viewer;
 > enabling them turns it into a remote control for every connected Docker
@@ -421,14 +482,17 @@ script), port 45876, one token per host. **Auto-updates declined** —
 > A 401 immediately at agent start followed by a successful connect ten seconds
 > later is **normal**.
 
-**Known-wrong metric:** the agent logs
-`WARN Using most active device for root I/O ... device=sda` on **Rhea and
-Hestia**, both of which boot from NVMe — so their disk I/O figures are
-misleading. Themis correctly detected `nvme0n1`. Fix by setting `FILESYSTEM` in
-the service file; [open](./OPEN-QUESTIONS.md#beszel-filesystem-override-on-rhea-and-hestia).
+**`sda` on Rhea and Hestia is CORRECT** — corrected 2026-10-03. Both boot from
+**M.2 SATA**, not NVMe. The agent logs `WARN Using most active device for root
+I/O ... device=sda` only because a ZFS root is not a block device, so it picks
+the disk itself; Themis correctly shows `nvme0n1`.
+
+> **Deliberately no `FILESYSTEM` override.** `sdX` names can change at boot once
+> a 2.5" bay is filled, so a hard-coded name could become wrong. Revisit when a
+> second disk goes in.
 
 `no valid SMART data found` is **expected** — the sandboxed agent lacks the
-privileges, and `sda` is the wrong device on two of three anyway.
+privileges.
 
 ### Uptime Kuma monitors to create
 
@@ -436,19 +500,29 @@ privileges, and `sda` is the wrong device on two of three anyway.
 |---|---|---|
 | **DNS** (native type, not HTTP) | `10.0.0.31`, `10.0.0.32` | Tells you *which* Pi-hole is unhealthy |
 | **DNS** | `10.0.0.33` | Whether clients can resolve at all — should stay green *through* a failover |
-| **DNS** | a `.lan` name against `.32` specifically | Catches a replica that resolves public names but has silently lost its local records — the failure nebula-sync could produce |
-| HTTP | each media service | |
-| Ping | the four hosts | |
-| HTTP | Beszel, wud | |
+| **DNS** | `plex.lan` against `.32` specifically | Catches a replica that resolves public names but has silently lost its local records — the failure nebula-sync could produce. Optionally add a Condition requiring the answer to equal `10.0.0.30`, which also catches a wrong record |
+| HTTP | Plex, Jellyfin, Tautulli, Navidrome, Posterizarr, Beszel, wud | |
+| HTTP-keyword `OK` on `/ping` | Prowlarr, Radarr, Sonarr | Unauthenticated health endpoint — avoids the login redirect |
+| HTTP | SABnzbd `:8080`, Bazarr `:6767`, Audiobookshelf `:13378/healthcheck`, abs-arr `:8788`, Reclaimerr `:8000` | |
+| HTTP | qBittorrent `:8080`, JDownloader `:5800`, MeTube `:8081` | |
+| Ping | Rhea `.10`, Themis `.11`, Hestia `.12`, Tartarus `.20` | The Hestia ping is largely a placeholder — see the blind spot below |
 
-60s interval is plenty.
+**Not monitored, deliberately:** **Byparr** (unpublished; Prowlarr flags tagged
+indexers if it dies) and **Recyclarr** (no UI — check its log after daily runs).
 
-> **The off-Hestia notification path is still outstanding, and it is the piece
-> that makes this layer meaningful.** Kuma and ntfy both live on Hestia, so a
-> Hestia failure kills the alert and the alerting system together. Kuma needs a
-> second channel that leaves the network entirely — email, Discord, Pushover —
-> with ntfy kept as the everyday hub.
-> [Open](./OPEN-QUESTIONS.md#uptime-kuma-off-hestia-notification-path).
+60s interval throughout.
+
+**Notifications.** **Telegram is the off-network channel** — it leaves the
+network entirely, so alerts survive an ntfy outage; ntfy stays the everyday hub.
+Both marked Default. **Telegram verified delivering and attached to every
+monitor.**
+
+> **Remaining blind spot: Kuma cannot report its own host's death.** Kuma and
+> its notification sender both run on Hestia, so if Hestia itself dies, nothing
+> alerts — **Telegram included**. Closing this needs something *outside* Hestia
+> that expects regular heartbeats and alerts when they stop, e.g.
+> Healthchecks.io's free tier.
+> [Open](./OPEN-QUESTIONS.md#hestia-down-blind-spot-in-monitoring).
 
 ---
 
@@ -491,6 +565,173 @@ Deleted from the share during rev 8:
 
 **The live layout now matches the documented one:** `downloads/`, `media/`,
 `shared/` and nothing else.
+
+---
+
+## `arr` — CT 300 on Themis, `10.0.0.35`
+
+### Container
+
+Debian 13 amd64 (`debian-13-standard_13.6-1_amd64` from `tantalus`),
+unprivileged, `nesting=1,keyctl=1`, 4 cores, 6144 MB, `swap 0`, 32 GB rootfs on
+`local-zfs`, `onboot 1`, static IP, `nameserver 10.0.0.33`, `searchdomain lan`.
+Docker **29.8.2**. Container timezone set to `America/Toronto` — **the template
+default is UTC.**
+
+```bash
+pct create 300 tantalus:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst \
+  --hostname arr --unprivileged 1 --features nesting=1,keyctl=1 \
+  --cores 4 --memory 6144 --swap 0 --rootfs local-zfs:32 \
+  --net0 name=eth0,bridge=vmbr0,ip=10.0.0.35/24,gw=10.0.0.1 \
+  --nameserver 10.0.0.33 --searchdomain lan --onboot 1 \
+  --mp0 /mnt/sisyphus,mp=/mnt/sisyphus \
+  --mp1 /themis-500/incomplete,mp=/mnt/incomplete
+# then append the idmap block to /etc/pve/lxc/300.conf BEFORE the first start
+```
+
+Same six `lxc.idmap` lines as `media`; Themis's host got `root:3004:1` in
+`/etc/subuid` and `/etc/subgid`. Verified: `ls -ln` on **both** mounts shows
+numeric `3004 3004` inside the container.
+
+### Stack
+
+Live at `/opt/stacks/arr/compose.yaml`, mirrored at
+[`stacks/arr/compose.yaml`](../stacks/arr/compose.yaml). Configs under
+`/opt/appdata/arr/<service>` owned 3004; every linuxserver service `PUID=3004`,
+`PGID=3004`, `TZ=America/Toronto`.
+
+| Service | Image | Version | Port | Mounts besides `/config` |
+|---|---|---|---|---|
+| prowlarr | `lscr.io/linuxserver/prowlarr` | `2.6.5.5623-ls162` | 9696 | — |
+| radarr | `lscr.io/linuxserver/radarr` | *see note* | 7878 | `/mnt/sisyphus:/data` |
+| sonarr | `lscr.io/linuxserver/sonarr` | *see note* | 8989 | `/mnt/sisyphus:/data` |
+| sabnzbd | `lscr.io/linuxserver/sabnzbd` | `5.1.3-ls275` | 8080 | `/mnt/sisyphus:/data`, `/mnt/incomplete/sabnzbd:/incomplete-downloads` |
+| byparr | `ghcr.io/thephaseless/byparr` | *see note* | — (8191 internal) | — |
+| recyclarr | `ghcr.io/recyclarr/recyclarr` | *see note* | — | `user: 3004:3004`, `CRON_SCHEDULE=@daily` |
+| bazarr | `lscr.io/linuxserver/bazarr` | *see note* | 6767 | `/mnt/sisyphus/media:/data/media` |
+| audiobookshelf | `ghcr.io/advplyr/audiobookshelf` | `2.37.1` | 13378 | `/metadata` local; `/mnt/sisyphus/media:/data/media` |
+| abs-arr | `ghcr.io/nana-boateng/abs-arr` | `0.2.1` | 8788 | `/mnt/sisyphus:/data` |
+| reclaimerr | `ghcr.io/jessielw/reclaimerr` | *see note* | 8000 | none (`/app/data` only) |
+| dozzle-agent | `amir20/dozzle` | `v11.1.3` | 7007 | docker socket `:ro` |
+
+> **Six tags are marked `PIN-ME` in the repo compose** because they were not
+> recorded. Read them off the live host and replace them there *and* in
+> `scripts/check-versions.sh`:
+> ```bash
+> pct exec 300 -- docker inspect -f '{{index .Config.Labels "build_version"}}' <image>
+> ```
+
+### Wiring
+
+**Prowlarr Apps:** Radarr `http://radarr:7878`, Sonarr `http://sonarr:8989`
+(Full Sync), **abs-arr added as a Readarr app** `http://abs-arr:8788`.
+
+**Download clients** in Radarr/Sonarr: SABnzbd `sabnzbd:8080`, categories
+`movies` / `tv`. **qBittorrent is NOT connected to Radarr/Sonarr yet** — they
+will use `qbittorrent-vpn` ([D30](./DECISIONS.md)).
+
+Bazarr connects to `sonarr` and `radarr` by name; **set the languages profile as
+default before connecting.** Every web UI uses Forms authentication required for
+**all** addresses — not "disabled for local".
+
+**Root folders:** Radarr `/data/media/video/movies`, Sonarr
+`/data/media/video/tv`. Stock quality profiles deleted after the Recyclarr sync;
+existing titles brought in with Library Import, profile chosen per title.
+
+**Byparr** is added in Prowlarr as a "FlareSolverr" proxy with tag
+`flaresolverr`, applied **only** to Cloudflare-protected indexers.
+
+### SABnzbd restore
+
+From `sabnzbd_backup_4.3.3_2025.01.27_10.29.27.zip`. **Only `sabnzbd.ini` was
+restored** — `history1.db`, `totals10.sab` and `rss_data.sab` were left out
+because they carry old paths. Copied into `/opt/appdata/arr/sabnzbd/` **before
+the first start**; SAB 5.1.3 then converted the 4.3.3 config.
+
+Fixes needed afterwards, **with SAB stopped**:
+
+| Setting | Change |
+|---|---|
+| `port` | `7777` → `8080` — the restored config listened on 7777 while compose mapped 8080 |
+| `download_dir` | → `/incomplete-downloads` |
+| `complete_dir` | → `/data/downloads/usenet/complete` |
+| `dirscan_dir` | left empty — the watch folder was never used |
+| `host_whitelist` | **add `sabnzbd`** or the arr apps are rejected by container name |
+| ownership | `chown 3004:3004 sabnzbd.ini` after editing |
+
+All four news servers tested OK. Their *"expiring in -310 days"* warnings were
+**stale expiry dates in SAB's own settings, not real expiries** — clear the date
+fields.
+
+### Verified
+
+Indexers sync from Prowlarr to both apps; Byparr serves tagged indexers; a
+Usenet grab downloaded to `themis-500`, completed to `usenet/complete/movies`,
+and was **moved** into `video/movies` — **link count 1, by design**, because
+Usenet has nothing to seed ([D32](./DECISIONS.md)).
+
+**The torrent hardlink test waits for `qbittorrent-vpn`.**
+
+---
+
+## `grab` — CT 301 on Themis, `10.0.0.36`
+
+### Container
+
+As `arr` except: hostname `grab`, **8192 MB**, 16 GB rootfs, IP `10.0.0.36`.
+Same two mounts and idmap. Docker 29.8.2, timezone `America/Toronto`.
+
+**Memory was raised from 4096 to 8192**: hundreds of torrents seed permanently,
+plus JDownloader's JVM and MeTube.
+
+Pending for gluetun: **`/dev/net/tun` passthrough** ([D30](./DECISIONS.md)).
+
+### Stack
+
+Live at `/opt/stacks/grab/compose.yaml`, mirrored at
+[`stacks/grab/compose.yaml`](../stacks/grab/compose.yaml).
+
+| Service | Image | Version | Ports | Mounts besides `/config` |
+|---|---|---|---|---|
+| qbittorrent | `lscr.io/linuxserver/qbittorrent` | `5.2.4_v2.0.15-ls479` | 8080, 6881 tcp+udp | `/mnt/sisyphus:/data`, `/mnt/incomplete/qbittorrent:/incomplete` |
+| jdownloader | `jlesage/jdownloader-2` | *see note* | 5800 | `downloads/direct/jdownloader:/output` |
+| metube | `ghcr.io/alexta69/metube` | *see note* | 8081 | `downloads/direct/metube:/downloads`; state + temp node-local |
+| dozzle-agent | `amir20/dozzle` | `v11.1.3` | 7007 | docker socket `:ro` |
+
+**Port 6881 TCP+UDP is forwarded on the ER605** to `10.0.0.36` — standalone UI:
+Transmission → NAT → Virtual Servers.
+
+### qBittorrent settings
+
+- Web UI credentials **changed from the temporary password printed in the log**.
+- Default save path `/data/downloads/torrents/complete`, incomplete in
+  `/incomplete`, torrent management **Automatic**.
+- Queueing: **5 active downloads** (sensible for the HDD scratch disk) and
+  **unlimited active uploads and torrents (`-1`)**. Queued torrents do not seed,
+  and private trackers count that against you — a cap of 20 would have stopped
+  everything past the 20th torrent.
+- **~1000 global connections**, ~50 per torrent; raise if peers are refused.
+- Disk cache: the old "~1024 MiB" setting probably **does not exist** in
+  libtorrent 2.x builds (the OS caches instead) — verify in Advanced and drop the
+  line if absent.
+- Connectable check: **green globe in the status bar.**
+
+> **Started from scratch** — no old config or `BT_backup` survived, so the **154
+> MyAnonymouse seeds** in `torrents/00-myanonymouse` must be re-added and
+> rechecked. **Seeding time is accruing as downtime until that is done.**
+
+**VueTorrent** is installed **manually from its release zip** into
+`/config/vuetorrent` and set as the alternative Web UI — **not** via the
+linuxserver mod, which pulls the newest version on every start. It therefore
+never self-updates: record the installed version.
+
+**JDownloader:** default download folder `/output`; `WEB_AUTHENTICATION` login in
+front of the GUI (if the image version lacks it, `10.0.0.36:5800` joins the
+unauthenticated list). It **self-updates its own core at runtime** by design; the
+image stays pinned.
+
+**MeTube:** `DOWNLOAD_DIR=/downloads`, `STATE_DIR=/state`, `TEMP_DIR=/tmp-dl`,
+`UID`/`GID` 3004.
 
 ---
 

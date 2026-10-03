@@ -1,0 +1,193 @@
+# arr — CT 300 on Themis, 10.0.0.35
+#
+# Mirrors the LIVE build at /opt/stacks/arr/compose.yaml.
+# Build record: docs/build-record.md · Gotchas: docs/build-gotchas.md
+#
+# TREATED AS ONE SYSTEM: one compose file, one network, matching PUID/PGID,
+# container-name wiring. The download client is deliberately NOT here (it is in
+# grab, reached by IP) and there is no VPN sidecar in this stack.
+#
+# PATHS. /mnt/sisyphus:/data as ONE bind for everything that must hardlink, so a
+# path reported by a download client exists unchanged in the importer and no
+# remote path mapping is needed. Least privilege for the rest: bazarr and
+# audiobookshelf see only media; prowlarr, byparr, recyclarr and reclaimerr see
+# no media at all.
+#
+# TAGS MARKED "PIN-ME" WERE NOT IN THE BRIEF. Read them off the live host and
+# replace — do not guess:
+#   docker inspect -f '{{index .Config.Labels "build_version"}}' <image>
+# Then add them to scripts/check-versions.sh.
+
+services:
+  # Keystone. Stand this up and configure indexers FIRST, then add each arr app
+  # as an application inside it. abs-arr is added as a READARR app.
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:2.6.5.5623-ls162
+    container_name: prowlarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    ports:
+      - '9696:9696'
+    volumes:
+      - ${APPDATA_DIR}/arr/prowlarr:/config
+    restart: unless-stopped
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:PIN-ME
+    container_name: radarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    ports:
+      - '7878:7878'
+    volumes:
+      - ${APPDATA_DIR}/arr/radarr:/config
+      # SINGLE unified root. Split mounts break atomic moves and hardlinks.
+      - ${STORAGE_DIR}:/data
+    restart: unless-stopped
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:PIN-ME
+    container_name: sonarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    ports:
+      - '8989:8989'
+    volumes:
+      - ${APPDATA_DIR}/arr/sonarr:/config
+      - ${STORAGE_DIR}:/data
+    restart: unless-stopped
+
+  # Lives WITH arr, not grab: Usenet is primary and reliable, so they go up and
+  # down together, insulated from qBittorrent. Sharing the LXC is also what
+  # makes the category paths line up — the #1 SAB failure mode.
+  # host_whitelist must include `sabnzbd` or the arr apps are rejected by name.
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:5.1.3-ls275
+    container_name: sabnzbd
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    ports:
+      - '8080:8080'
+    volumes:
+      - ${APPDATA_DIR}/arr/sabnzbd:/config
+      - ${STORAGE_DIR}:/data
+      # Incomplete on the HDD scratch pool, never the SSD.
+      - ${INCOMPLETE_DIR}/sabnzbd:/incomplete-downloads
+    restart: unless-stopped
+
+  # Drop-in FlareSolverr replacement, same API and port. DELIBERATELY NOT
+  # PUBLISHED — only Prowlarr talks to it, by container name. Added in Prowlarr
+  # as a "FlareSolverr" proxy with tag `flaresolverr`, applied only to
+  # Cloudflare-protected indexers.
+  byparr:
+    image: ghcr.io/thephaseless/byparr:PIN-ME
+    container_name: byparr
+    environment:
+      - TZ=${TZ}
+    restart: unless-stopped
+
+  # LONG-LIVED with its own cron — not a job that exits.
+  # Recyclarr loads EVERY file in configs/, so several files aimed at the same
+  # Radarr conflict: one merged file per app. secrets.yml is NOT in this repo.
+  recyclarr:
+    image: ghcr.io/recyclarr/recyclarr:PIN-ME
+    container_name: recyclarr
+    user: "${PUID}:${PGID}"
+    environment:
+      - TZ=${TZ}
+      - CRON_SCHEDULE=@daily
+    volumes:
+      - ${APPDATA_DIR}/arr/recyclarr:/config
+    restart: unless-stopped
+
+  # Core only. Mounts ONLY media — never downloads. Whisper AI subtitle
+  # generation deferred: it wants a GPU, and Themis's UHD 630 is not passed in.
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:PIN-ME
+    container_name: bazarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    ports:
+      - '6767:6767'
+    volumes:
+      - ${APPDATA_DIR}/arr/bazarr:/config
+      - ${STORAGE_DIR}/media:/data/media
+    restart: unless-stopped
+
+  # Lives in arr, NOT media: abs-arr imports into its library and triggers
+  # scans, so the pair must share a daemon and filesystem.
+  # Official image takes `user:`, not PUID/PGID.
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:2.37.1
+    container_name: audiobookshelf
+    user: "${PUID}:${PGID}"
+    environment:
+      - TZ=${TZ}
+      - PORT=13378
+    ports:
+      - '13378:13378'
+    volumes:
+      # /config and /metadata are node-local: they hold listening progress.
+      - ${APPDATA_DIR}/arr/audiobookshelf/config:/config
+      - ${APPDATA_DIR}/arr/audiobookshelf/metadata:/metadata
+      - ${STORAGE_DIR}/media:/data/media
+    restart: unless-stopped
+
+  # Own project, private ghcr image. Needs a CLASSIC PAT with read:packages
+  # (fine-grained tokens cannot authenticate to ghcr.io) and a
+  # `docker login ghcr.io` inside this LXC BEFORE the first compose up.
+  # TORRENT-ONLY as of 0.2.1 — Usenet is on its roadmap. It uses the VPN-FREE
+  # qbittorrent in grab, not SAB.
+  abs-arr:
+    image: ghcr.io/nana-boateng/abs-arr:0.2.1
+    container_name: abs-arr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    ports:
+      - '8788:8788'
+    volumes:
+      - ${APPDATA_DIR}/arr/abs-arr:/config
+      - ${STORAGE_DIR}:/data
+    restart: unless-stopped
+
+  # THE ONLY TOOL IN THE STACK THAT PERMANENTLY DELETES MEDIA.
+  # Report-only BY CONSTRUCTION: no media mount and no Radarr/Sonarr
+  # connection, so it cannot delete even if asked. It reads Plex and Jellyfin
+  # over the network. Plex's "Allow media deletion" stays OFF.
+  # Enabling deletion needs ALL THREE: off-box backup in place, the
+  # Radarr/Sonarr connection added, and automatic deletion out of beta.
+  reclaimerr:
+    image: ghcr.io/jessielw/reclaimerr:PIN-ME
+    container_name: reclaimerr
+    environment:
+      - TZ=${TZ}
+    ports:
+      - '8000:8000'
+    volumes:
+      - ${APPDATA_DIR}/arr/reclaimerr:/app/data
+    restart: unless-stopped
+
+  # Version-COUPLED to the Dozzle server in monitor. See update-discipline.md.
+  dozzle-agent:
+    image: amir20/dozzle:v11.1.3
+    container_name: dozzle-agent
+    command: agent
+    environment:
+      - DOZZLE_HOSTNAME=arr
+    ports:
+      - '7007:7007'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped

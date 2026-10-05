@@ -1,11 +1,14 @@
 # /etc/systemd/system/nebula-sync.service on dns (CT 100)
+# MIRRORS THE LIVE FILE as exported 2026-10-04.
 #
 # nebula-sync does its own cron scheduling, so this is a long-lived daemon and
 # NOT a systemd timer. `systemctl restart nebula-sync` forces an immediate sync.
+# If it restarts every 30 seconds, PRIMARY/REPLICAS are unset — that is the
+# documented behaviour for missing config, not a crash.
 
 [Unit]
-Description=nebula-sync — replicate Pi-hole config primary -> replica
-After=network-online.target
+Description=nebula-sync - Pi-hole v6 configuration replication
+After=network-online.target pihole-FTL.service
 Wants=network-online.target
 
 [Service]

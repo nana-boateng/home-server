@@ -12,3 +12,7 @@ share/
 shared/
 site/
 .omx/
+
+# Live-host export, extracted for reconciliation. Evidence, not a record —
+# the corrections it produces get committed, the export itself does not.
+.live/

@@ -13,6 +13,10 @@
 # is needed. Least privilege for the rest: bazarr and audiobookshelf see only
 # media; prowlarr, byparr, recyclarr and reclaimerr see no media at all.
 
+# Project name is pinned so `docker compose` outside /opt/stacks/arr
+# still resolves to the same project and does not orphan the containers.
+name: arr
+
 services:
   # TORRENT-ONLY as of 0.2.1 (Usenet is on its roadmap). Uses the VPN-FREE
   # qbittorrent in grab, not SAB. Private ghcr image: needs a CLASSIC PAT with

@@ -12,6 +12,10 @@
 # every arr guide, not an oversight: MyAnonymouse ties the account to the IPs
 # you seed from and wants long-term connectable seeding.
 
+# Project name is pinned so `docker compose` outside /opt/stacks/grab
+# still resolves to the same project and does not orphan the containers.
+name: grab
+
 services:
   dozzle-agent:
     image: amir20/dozzle:v11.1.3

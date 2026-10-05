@@ -7,6 +7,10 @@
 # Build record: docs/build-record.md · Gotchas: docs/build-gotchas.md
 # Version-coupled: dozzle-agent matches the server in monitor.
 
+# Project name is pinned so `docker compose` outside /opt/stacks/media
+# still resolves to the same project and does not orphan the containers.
+name: media
+
 services:
   plex:
     image: lscr.io/linuxserver/plex:1.43.4
@@ -90,7 +94,7 @@ services:
     container_name: posterizarr
     user: "3004:3004"
     # TMDB / Fanart / TVDB keys. Secrets stay on the host, never in the clone.
-    env_file: .env
+    env_file: /opt/stacks/media/.env
     environment:
       - TZ=America/Toronto
     volumes:

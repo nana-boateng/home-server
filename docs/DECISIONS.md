@@ -853,3 +853,54 @@ Plus the **Home Assistant VM**. Six LXCs are built.
 **Cross-LXC wiring is by IP:** `arr` reaches qBittorrent at `10.0.0.36:8080`;
 Reclaimerr reaches Plex and Jellyfin at `10.0.0.30`. Within an LXC, by container
 name.
+
+---
+
+## 2026-10-05
+
+### D35 — The hosts deploy from the repo
+
+Each Docker LXC clones the repo to `/opt/home-server` and deploys with
+`scripts/deploy.sh <stack>`, which is `git pull --ff-only` followed by
+`docker compose -p <stack> --env-file /opt/stacks/<stack>/.env
+-f stacks/<stack>/compose.yaml up -d`.
+
+**Rationale.** [D9](#d9--this-repo-is-the-source-of-truth) declared the repo the
+source of truth, but the mechanism ran the other way: things were built, then
+described, then transcribed into the repo. The 2026-10-04 export measured the
+cost of that — six image tags never recorded, a vestigial `group_add` nobody
+knew about, Recyclarr configs in the wrong schema, and a keepalived weight fixed
+on the primary but not the replica. None of those were catchable from the repo
+side. After the flip, drift is `git status` on the host and image pins are what
+is actually deployed, so `scripts/check-versions.sh` compares reality against
+upstream rather than comparing a transcription against upstream.
+
+**`git pull --ff-only` is chosen for its failure mode:** it refuses a dirty
+clone instead of merging or stashing, so a hand-edit on the host surfaces loudly
+at the next deploy.
+
+Two requirements this places on every compose file, both now applied:
+
+- **`name: <stack>`** — the project name must stay what it was when the stack
+  deployed out of `/opt/stacks/<stack>/`, or Compose orphans the running
+  containers rather than adopting them.
+- **`env_file:` absolute**, under `/opt/stacks/<stack>/` — a relative path would
+  resolve inside the clone, where secrets must never be.
+
+**Secrets do not move.** `.env` stays on the host at mode 600; only
+`.env.template` is committed. `arr` and `grab` have no `.env`, so `deploy.sh`
+passes `--env-file` only when the file exists.
+
+**Access for the audit was a one-time export, not standing SSH.** A root-owned
+wrapper with no sudo wildcards remains available if continuous checking is ever
+wanted; `pct exec` was rejected as an allowlist entry because it runs arbitrary
+commands and is therefore equivalent to granting root.
+
+**Deploy keys: one per LXC**, generated on that LXC, read-only, titled by
+hostname — so one can be revoked without touching the others.
+
+Cutover order **`grab` → `arr` → `media` → `monitor`**: loosest grouping first,
+and the stack that would conceal its own failure last. `dns`/`dns2` are native
+daemons and come later via an install script, **replica first**.
+
+Procedure: [deploy-from-repo.md](./deploy-from-repo.md).

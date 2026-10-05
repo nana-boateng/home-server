@@ -9,6 +9,10 @@
 # Beszel and Dozzle are version-COUPLED to their agents; see
 # docs/update-discipline.md before bumping either.
 
+# Project name is pinned so `docker compose` outside /opt/stacks/monitor
+# still resolves to the same project and does not orphan the containers.
+name: monitor
+
 services:
   # Is it up. Service-layer availability; Proxmox quorum covers node-down.
   # On 2.x since the 1.23.17 -> 2.5.0 migration; stay at or above 2.4.0, which
@@ -65,7 +69,7 @@ services:
   wud:
     image: ghcr.io/getwud/wud:9.2.1
     container_name: wud
-    env_file: .env
+    env_file: /opt/stacks/monitor/.env
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /opt/appdata/monitor/wud:/store

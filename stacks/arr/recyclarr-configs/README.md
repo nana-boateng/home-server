@@ -25,6 +25,20 @@ Always preview before syncing, and **check the scores come out non-zero**:
 docker compose exec recyclarr recyclarr sync radarr --preview
 ```
 
+## Schema note
+
+These files use `quality_profiles` keyed by **`trash_id`**, not by `name`, and
+the newer **`custom_format_groups: add:`** block rather than `include:`
+templates. That is what the live install uses — the templates were flattened
+into explicit trash_ids rather than referenced. Keep that shape; mixing the two
+styles is how you end up with files that conflict.
+
+The Sonarr audio group is `e9a1944a254e6f8a9da63083f7ae15cb`
+(**[Audio] Audio Formats**), assigned to the two remux profiles. TRaSH leaves
+Sonarr audio scoring optional, so without this it simply would not be applied —
+which matters because the Zidoo bitstreams TrueHD/Atmos to the receiver rather
+than relying on the server to decode.
+
 ## Why these profiles
 
 The owner plays remuxes on a **Zidoo** player that bitstreams TrueHD/Atmos and

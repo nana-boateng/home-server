@@ -1,54 +1,31 @@
-# Recyclarr — Sonarr. ONE merged file; see README.md in this directory.
-# API key lives in secrets.yml (mode 600, never committed).
+# Merged from TRaSH templates: remux-web-2160p, web-2160p-combined,
+# remux-web-1080p, web-1080p. CF groups at TRaSH defaults;
+# originals in ../templates/.
 sonarr:
-  tv:
+  sonarr:
     base_url: http://sonarr:8989
-    api_key: !secret sonarr_api_key
-
-    delete_old_custom_formats: true
-    replace_existing_custom_formats: true
+    api_key: !secret sonarr_apikey
 
     quality_definition:
       type: series
 
     quality_profiles:
-      - name: Remux + WEB 2160p
-      - name: WEB-2160p              # Combined — serves 1080p until 4K exists
-      - name: Remux + WEB 1080p
-      - name: WEB-1080p
+      - trash_id: 76a5053bdb2d1e4a8f16a69a37d46c12  # Remux + WEB 2160p
+        reset_unmatched_scores:
+          enabled: true
+      - trash_id: c4cadd6b35b95f62c3d47a408e53e2f7  # WEB-2160p (Combined)
+        reset_unmatched_scores:
+          enabled: true
+      - trash_id: fe9470e577c300a5ad9a3274f6d1cdf2  # Remux + WEB 1080p
+        reset_unmatched_scores:
+          enabled: true
+      - trash_id: 72dae194fc92bf828f32cde7744e51a1  # WEB-1080p
+        reset_unmatched_scores:
+          enabled: true
 
-    include:
-      - template: sonarr-quality-definition-series
-      - template: sonarr-v4-quality-profile-remux-web-2160p
-      - template: sonarr-v4-custom-formats-remux-web-2160p
-      - template: sonarr-v4-quality-profile-web-2160p
-      - template: sonarr-v4-custom-formats-web-2160p
-      - template: sonarr-v4-quality-profile-remux-web-1080p
-      - template: sonarr-v4-custom-formats-remux-web-1080p
-      - template: sonarr-v4-quality-profile-web-1080p
-      - template: sonarr-v4-custom-formats-web-1080p
-
-    # TRaSH leaves Sonarr audio scoring OPTIONAL, so the [Audio] Audio Formats
-    # group must be added EXPLICITLY to the two remux profiles — matching Radarr,
-    # and mattering here because the Zidoo bitstreams TrueHD/Atmos to the
-    # receiver rather than relying on the server to decode.
-    #
-    # Intended scores (from the live build): TrueHD Atmos 5000 down to DD 750.
-    #
-    # THE trash_ids ARE DELIBERATELY NOT FILLED IN HERE. They are opaque hashes
-    # that cannot be verified from this repo, and a wrong one silently scores the
-    # wrong format or nothing at all. Copy them from the live config:
-    #
-    #   pct exec 300 -- cat /opt/appdata/arr/recyclarr/configs/sonarr.yml
-    #
-    # or from the [Audio] Audio Formats group at
-    # https://trash-guides.info/Sonarr/sonarr-collection-of-custom-formats/
-    #
-    # custom_formats:
-    #   - trash_ids:
-    #       - <TrueHD Atmos>
-    #       - <DTS X>
-    #       - ...
-    #     assign_scores_to:
-    #       - name: Remux + WEB 2160p
-    #       - name: Remux + WEB 1080p
+    custom_format_groups:
+      add:
+        - trash_id: e9a1944a254e6f8a9da63083f7ae15cb  # [Audio] Audio Formats
+          assign_scores_to:
+            - trash_id: 76a5053bdb2d1e4a8f16a69a37d46c12  # Remux + WEB 2160p
+            - trash_id: fe9470e577c300a5ad9a3274f6d1cdf2  # Remux + WEB 1080p
